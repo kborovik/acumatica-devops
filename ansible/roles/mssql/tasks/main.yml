@@ -17,3 +17,7 @@
 
 - name: SQL Server Management Studio in the guest
   ansible.builtin.import_tasks: ssms.yml
+
+- name: Backup disk + nightly SQL Agent backup job
+  ansible.builtin.import_tasks: backup.yml
+  tags: mssql_backup

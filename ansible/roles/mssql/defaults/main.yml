@@ -17,3 +17,24 @@ mssql_sa_password_file: /root/mssql-sa-{{ inventory_hostname }}.pass # on kronos
 
 # SQL Server Management Studio 22 (bootstrapper; payload downloaded at install time)
 ssms_url: https://aka.ms/ssms/22/release/vs_SSMS.exe
+
+# --- Backups ------------------------------------------------------------------
+# A dedicated sparse zvol, hot-plugged as a third virtio disk and formatted in
+# the guest, is the LOCAL backup target. A SQL Agent job dumps every user
+# database there nightly (fast, application-consistent), then copies the .bak
+# files to the mssql-backups SMB share for off-VM durability. The share is a
+# native ZFS dataset snapshotted daily (backup_snap_keep), which provides the
+# retention history — the local disk keeps only the latest dump (WITH INIT).
+#
+# Why not BACKUP straight to the UNC path? The engine runs as the virtual
+# account NT Service\MSSQLSERVER, which reaches SMB as the machine account —
+# the share's `valid users = svc-backup` rejects it, and BACKUP TO DISK has no
+# way to pass a credential. The copy step authenticates with `net use` instead.
+mssql_backup_disk_size: 50G # sparse — holds the latest dump of each user DB
+mssql_backup_drive: E
+mssql_backup_zvol: "{{ vm_zvol_parent }}/{{ inventory_hostname }}-backup"
+mssql_backup_local_dir: "{{ mssql_backup_drive }}:\\sqlbackup" # in-guest Windows path
+mssql_backup_job_name: Backup user databases
+mssql_backup_hour: 2 # daily start hour (before the 03:15 share snapshot)
+mssql_backup_smb_host: 192.168.122.1 # kronos on the libvirt NAT (guest can't resolve the tailnet name)
+mssql_backup_script_dir: 'C:\ProgramData\sqlbackup' # holds the copy .cmd (contains svc-backup creds)

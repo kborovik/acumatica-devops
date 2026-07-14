@@ -1,0 +1,139 @@
+---
+# Dedicated backup disk + nightly SQL Agent job. See defaults/main.yml for the
+# design rationale (why the copy step can't be a plain BACKUP TO the UNC path).
+
+# --- Host side on kronos: backup zvol + hot-plug ------------------------------
+- name: Backup disk — host-side resources on kronos
+  delegate_to: kronos
+  become: true
+  block:
+    - name: Check backup zvol
+      ansible.builtin.command: zfs list {{ mssql_backup_zvol }}
+      register: backup_zvol_check
+      failed_when: false
+      changed_when: false
+      check_mode: false # read-only probe; later conditionals need its output
+
+    - name: Create backup zvol (sparse, 64k volblocksize, zstd — .bak compresses well)
+      ansible.builtin.command: >-
+        zfs create -s -V {{ mssql_backup_disk_size }} -o volblocksize=64k
+        -o compression=zstd {{ mssql_backup_zvol }}
+      when: backup_zvol_check.rc != 0
+
+    - name: Check the backup disk is attached to the domain
+      ansible.builtin.shell: virsh domblklist {{ inventory_hostname }} | grep -F {{ mssql_backup_zvol }}
+      register: backup_attach_check
+      failed_when: false
+      changed_when: false
+      check_mode: false # read-only probe; later conditionals need its output
+
+    - name: Hot-plug the backup disk (also persists it in the domain XML)
+      ansible.builtin.command: >-
+        virt-xml {{ inventory_hostname }} --update --add-device
+        --disk path=/dev/zvol/{{ mssql_backup_zvol }},bus=virtio,format=raw,cache=none,discard=unmap
+      when: backup_attach_check.rc != 0
+
+# --- Guest side: format the backup disk as {{ mssql_backup_drive }}: ----------
+- name: Check for the backup volume
+  ansible.windows.win_shell: >-
+    if (Get-Partition -DriveLetter {{ mssql_backup_drive }} -ErrorAction SilentlyContinue)
+    { 'present' } else { 'absent' }
+  register: backup_vol
+  changed_when: false
+  check_mode: false # read-only probe; later conditionals need its output
+
+- name: Bring up {{ mssql_backup_drive }} on the hot-plugged backup disk
+  when: backup_vol.stdout is not search('present')
+  block:
+    - name: Free drive letter {{ mssql_backup_drive }} if a CD-ROM holds it
+      ansible.windows.win_shell: |
+        $cd = Get-CimInstance Win32_Volume -Filter "DriveType=5 AND DriveLetter='{{ mssql_backup_drive }}:'"
+        if ($cd) {
+          $used = (Get-CimInstance Win32_Volume | Where-Object DriveLetter).DriveLetter
+          $free = 90..65 | ForEach-Object { "$([char]$_):" } | Where-Object { $_ -notin $used } | Select-Object -First 1
+          Set-CimInstance -InputObject $cd -Property @{DriveLetter = $free}
+          "moved CD-ROM to $free"
+        } else { "no move needed" }
+      register: backup_cd_move
+      changed_when: "'moved' in backup_cd_move.stdout"
+
+    - name: Prepare the backup disk (find the spare non-system disk, GPT-init if RAW)
+      ansible.windows.win_shell: |
+        Update-HostStorageCache
+        # The backup disk is the non-system disk with no drive-lettered partition
+        # (the data disk carries {{ mssql_data_drive }}:). A GPT-init leaves only
+        # a Reserved partition, so match on "no drive letter", not partition count.
+        $d = Get-Disk | Where-Object { -not $_.IsSystem -and -not $_.IsBoot } |
+          Where-Object { -not (Get-Partition -DiskNumber $_.Number -ErrorAction SilentlyContinue |
+                                Where-Object DriveLetter) } |
+          Select-Object -First 1
+        if (-not $d) { exit 1 }
+        if ($d.PartitionStyle -eq 'RAW') { Initialize-Disk -Number $d.Number -PartitionStyle GPT | Out-Null }
+        $d.Number
+      register: backup_raw_disk
+      retries: 6
+      delay: 5
+      until: backup_raw_disk.rc == 0
+      changed_when: false
+
+    - name: Partition the full backup disk as {{ mssql_backup_drive }}
+      community.windows.win_partition:
+        disk_number: "{{ backup_raw_disk.stdout | trim | int }}"
+        partition_size: -1
+        drive_letter: "{{ mssql_backup_drive }}"
+
+    - name: Format NTFS with 64K allocation unit (SQL Server extent size)
+      community.windows.win_format:
+        drive_letter: "{{ mssql_backup_drive }}"
+        file_system: NTFS
+        allocation_unit_size: 65536
+        new_label: mssql-backup
+
+- name: Local backup directory
+  ansible.windows.win_file:
+    path: "{{ mssql_backup_local_dir }}"
+    state: directory
+
+# --- SQL Agent job + SMB copy script ------------------------------------------
+- name: Read the {{ smb_backup_user }} SMB password from kronos
+  delegate_to: kronos
+  become: true
+  ansible.builtin.slurp:
+    src: /root/{{ smb_backup_user }}.smbpasswd
+  register: svc_backup_pw_raw
+  no_log: true
+
+- name: Stash the credential for the templates
+  ansible.builtin.set_fact:
+    svc_backup_password: "{{ svc_backup_pw_raw.content | b64decode | trim }}"
+  no_log: true
+
+- name: Script directory (holds the credentialed copy .cmd)
+  ansible.windows.win_file:
+    path: "{{ mssql_backup_script_dir }}"
+    state: directory
+
+- name: Deploy the SMB copy script
+  ansible.windows.win_template:
+    src: backup-copy.cmd.j2
+    dest: "{{ mssql_backup_script_dir }}\\backup-copy.cmd"
+  no_log: true # rendered file contains the svc-backup password
+
+- name: Render the job installer
+  ansible.windows.win_template:
+    src: install-backup-job.sql.j2
+    dest: "{{ mssql_backup_script_dir }}\\install-backup-job.sql"
+
+- name: Install/refresh the SQL Agent backup job
+  ansible.windows.win_shell: |
+    $ErrorActionPreference = 'Stop'
+    $sql = Get-Content -Raw '{{ mssql_backup_script_dir }}\install-backup-job.sql'
+    $c = New-Object System.Data.SqlClient.SqlConnection(
+      "Server=localhost;Database=msdb;Integrated Security=True;TrustServerCertificate=True")
+    $c.Open()
+    $cmd = $c.CreateCommand(); $cmd.CommandText = $sql; $cmd.CommandTimeout = 120
+    [void]$cmd.ExecuteNonQuery()
+    $c.Close()
+    'job-installed'
+  register: job_install
+  changed_when: "'job-installed' in job_install.stdout"
