@@ -49,7 +49,9 @@ The lab resolves it to a Tailscale MagicDNS name. Host runs Ubuntu 26.04 LTS.
 
 Pool is `upool`. Acumatica-related datasets:
 
-- `upool/vms` — VM disks, one zvol per VM (`upool/vms/<name>`).
+- `upool/vms` — VM disks, one zvol per VM (`upool/vms/<name>`, plus `-data` and
+  `-backup` zvols). Snapshotted daily by one atomic `zfs snapshot -r`
+  (`vm_snap_keep` kept) as a crash-consistent whole-VM rollback net.
 - `upool/distr` → `/upool/distr` — ISO images and installers (Acumatica MSI, SQL
   Server ISO). SMB share `\\<host>\distr`.
 - `upool/backups/mssql` → `/upool/backups/mssql` — SQL Server backups. SMB share
@@ -96,8 +98,10 @@ The MAC is derived from `vm_ip`'s last octet, so the static DHCP lease and the
 at `http://<vm>.vm.internal/` — first login `admin`/`setup` (password change
 forced).
 
-Golden-image build, instance internals, MSSQL backup/recovery, and Tailscale
-access are documented in [docs/windows-vms.md](docs/windows-vms.md).
+Golden-image build, instance internals, and Tailscale access are documented in
+[docs/windows-vms.md](docs/windows-vms.md). The backup strategy — SQL-native
+`.bak` backups plus ZFS zvol snapshots — is in
+[docs/backup-strategy.md](docs/backup-strategy.md).
 
 ## Role reference
 
@@ -106,7 +110,8 @@ the Windows guests. Roles in order:
 
 - **kvm** — hypervisor plus `win-vm-create`, `win-vm-rm`, and `qga-exec` helper
   scripts. Golden-image build, teardown, guest-agent rescue.
-- **storage** — ZFS datasets and the backup snapshot schedule.
+- **storage** — ZFS datasets plus the snapshot schedules (daily recursive
+  snapshot of the VM zvols and daily snapshot of the MSSQL backup dataset).
 - **network** — libvirt NAT, static DHCP leases, Tailscale subnet router,
   split-DNS dnsmasq. VMs resolve as `<vm>.vm.internal` on the tailnet.
 - **fileserver** — SMB shares over `/upool`: `distr`, `mssql-backups`.

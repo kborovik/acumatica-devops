@@ -159,45 +159,8 @@ guest agent — works even when SSH and RDP are broken:
 
 ## 3. MSSQL backup / recovery
 
-Two complementary layers:
-
-**SQL-native backups (per-database, restorable anywhere).** Provisioned by the
-`mssql` role — `--tags mssql_backup` sets up all of the below; nothing here is
-manual. Each instance gets a dedicated **backup disk** (a third virtio zvol
-`upool/vms/<name>-backup`, formatted `E:`) as the local backup target. A SQL
-Agent job **"Backup user databases"** runs nightly at 02:00 in two steps:
-
-1. `BACKUP DATABASE` every online user DB to `E:\sqlbackup\<db>.bak`
-   (`WITH INIT, COMPRESSION, CHECKSUM`) — fast and application-consistent.
-2. Copy those `.bak` files to the SMB share via
-   `C:\ProgramData\sqlbackup\backup-copy.cmd`.
-
-The Ubuntu host exports `\\<host>\mssql-backups` (dataset `upool/backups/mssql`,
-zstd-compressed), owned by Samba-only user `svc-backup` (password in
-`/root/svc-backup.smbpasswd` on the host). The copy step authenticates with that
-credential via `net use` — it can't be a plain `BACKUP TO DISK '\\...'` because
-the engine runs as the virtual account `NT Service\MSSQLSERVER`, which reaches
-SMB as the *machine* account and is rejected by the share's `valid users =
-svc-backup` (and `BACKUP TO DISK` has no way to pass a credential). The
-credential is rendered into `backup-copy.cmd` on the guest, not committed.
-
-Restore with `RESTORE DATABASE ... FROM DISK = '\\<host>\mssql-backups\<name>\<db>.bak'`.
-The local disk keeps only the latest dump (`WITH INIT`); history lives on the
-share, which is snapshotted daily (03:15, 14 kept) by
-`/usr/local/sbin/zfs-snap-backups` — so a prior day's `.bak` is recoverable from
-`.zfs/snapshot/auto-*/` under the share mount. (The 02:00 job finishes well
-before the 03:15 snapshot, which therefore captures a complete copy.)
-
-Run the backup on demand (e.g. before a risky change) from the guest:
-
-    sqlcmd -E -Q "EXEC msdb.dbo.sp_start_job N'Backup user databases'"
-
-**Whole-instance recovery (crash-consistent).** Snapshot the VM's zvol:
-
-    sudo zfs snapshot upool/vms/acu-dev1@before-upgrade
-    # roll back (VM must be shut off):
-    sudo virsh shutdown acu-dev1 && sudo zfs rollback upool/vms/acu-dev1@before-upgrade
-
-Prefer SQL-native backups for data integrity (MSSQL in a zvol snapshot is
-crash-consistent, not application-consistent); use zvol snapshots for fast
-"undo" of OS/app-level changes.
+Two complementary layers — nightly SQL-native `.bak` backups (per-database,
+restorable anywhere) and daily crash-consistent ZFS zvol snapshots (whole-VM
+rollback) — both Ansible-provisioned. The full design, schedule, retention,
+restore commands, and configuration knobs live in
+[backup-strategy.md](backup-strategy.md).

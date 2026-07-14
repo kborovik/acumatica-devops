@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# zfs-snap [-r] <dataset> <keep> — snapshot + retention prune.
+# -r takes one atomic recursive snapshot across <dataset> and every descendant
+# (same txg), and prunes each timestamp recursively. Snapshots are named
+# @auto-YYYYMMDD-HHMM; only auto-* snapshots on <dataset> itself are pruned.
+set -euo pipefail
+
+RECURSIVE=
+if [[ ${1:-} == -r ]]; then RECURSIVE=1; shift; fi
+DS=$1 KEEP=$2
+
+zfs snapshot ${RECURSIVE:+-r} "${DS}@auto-$(date +%Y%m%d-%H%M)"
+
+# List only <dataset>'s own auto-* snapshots (-d 1), oldest first, and destroy
+# all but the newest KEEP. With -r the destroy removes that timestamp across
+# every descendant in one call.
+zfs list -H -t snapshot -o name -s creation -d 1 "$DS" \
+    | grep "^${DS}@auto-" \
+    | head -n -"$KEEP" \
+    | xargs -r -n1 zfs destroy ${RECURSIVE:+-r}
