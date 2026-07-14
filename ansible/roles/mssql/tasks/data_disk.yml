@@ -1,0 +1,52 @@
+---
+- name: Check for the data volume
+  ansible.windows.win_shell: >-
+    if (Get-Partition -DriveLetter {{ mssql_data_drive }} -ErrorAction SilentlyContinue)
+    { 'present' } else { 'absent' }
+  register: data_vol
+  changed_when: false
+  check_mode: false # read-only probe; later conditionals need its output
+
+- name: Bring up {{ mssql_data_drive }} on the hot-plugged disk
+  when: data_vol.stdout is not search('present')
+  block:
+    - name: Free drive letter {{ mssql_data_drive }} if a CD-ROM holds it
+      ansible.windows.win_shell: |
+        $cd = Get-CimInstance Win32_Volume -Filter "DriveType=5 AND DriveLetter='{{ mssql_data_drive }}:'"
+        if ($cd) {
+          $used = (Get-CimInstance Win32_Volume | Where-Object DriveLetter).DriveLetter
+          $free = 90..65 | ForEach-Object { "$([char]$_):" } | Where-Object { $_ -notin $used } | Select-Object -First 1
+          Set-CimInstance -InputObject $cd -Property @{DriveLetter = $free}
+          "moved CD-ROM to $free"
+        } else { "no move needed" }
+      register: cd_move
+      changed_when: "'moved' in cd_move.stdout"
+
+    - name: Wait for the hot-plugged disk to appear
+      ansible.windows.win_shell: |
+        Update-HostStorageCache
+        $d = Get-Disk | Where-Object PartitionStyle -eq 'RAW' | Select-Object -First 1
+        if (-not $d) { exit 1 }
+        $d.Number
+      register: raw_disk
+      retries: 6
+      delay: 5
+      until: raw_disk.rc == 0
+      changed_when: false
+
+    - name: Initialize the disk (GPT)
+      community.windows.win_initialize_disk:
+        disk_number: "{{ raw_disk.stdout | trim | int }}"
+
+    - name: Partition the full disk as {{ mssql_data_drive }}
+      community.windows.win_partition:
+        disk_number: "{{ raw_disk.stdout | trim | int }}"
+        partition_size: -1
+        drive_letter: "{{ mssql_data_drive }}"
+
+    - name: Format NTFS with 64K allocation unit (SQL Server extent size)
+      community.windows.win_format:
+        drive_letter: "{{ mssql_data_drive }}"
+        file_system: NTFS
+        allocation_unit_size: 65536
+        new_label: mssql-data

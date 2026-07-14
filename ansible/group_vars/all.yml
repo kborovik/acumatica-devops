@@ -1,0 +1,28 @@
+# --- storage: ZFS datasets ----------------------------------------------------
+vm_zvol_parent: upool/vms # each VM disk is a zvol: upool/vms/<name>
+distr_dataset: upool/distr
+distr_mount: /upool/distr
+mssql_backup_dataset: upool/backups/mssql
+mssql_backup_mount: /upool/backups/mssql
+backup_snap_keep: 14 # daily ZFS snapshots of the backup share
+
+# --- network: libvirt NAT subnet, advertised to the tailnet -------------------
+vm_subnet: 192.168.122.0/24
+# DHCP/DNS records: the golden image plus one entry per acu inventory host,
+# built from vm_ip/vm_mac (group_vars/acu.yml) — add VMs in inventory/hosts.yml,
+# not here.
+vm_golden_image: ws2025-base
+vm_dhcp_hosts: >-
+  {{ [{'name': vm_golden_image, 'mac': '52:54:00:4a:86:96', 'ip': '192.168.122.10'}]
+     + (groups['acu'] | default([]) | map('extract', hostvars, 'vm_dhcp_entry') | list) }}
+# tailnet-wide VM names (<name>.{{ vm_dns_domain }}): dnsmasq on kronos's
+# tailscale IP serves vm_dhcp_hosts records; Tailscale split DNS points the
+# domain there (one-time admin-console step, see roles/network/tasks/main.yml)
+vm_dns_domain: vm.internal
+
+# --- fileserver: SMB shares (\\kronos\distr, \\kronos\mssql-backups) -----------
+# samba-only accounts; passwords generated on kronos at /root/<user>.smbpasswd
+smb_distr_user: svc-distr
+smb_backup_user: svc-backup
+iso_dir: '{{ distr_mount }}/iso' # OS / driver ISOs used by win-vm-create
+virtio_win_iso: '{{ iso_dir }}/virtio-win-0.1.285.iso'

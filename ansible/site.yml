@@ -1,0 +1,37 @@
+---
+# Deployment stack for the Acumatica dev/tst/prd lab:
+#   kvm        hypervisor + VM lifecycle scripts (win-vm-*, qga-exec)
+#   storage    ZFS datasets + backup snapshot schedule
+#   network    libvirt NAT net, static DHCP leases, tailscale subnet router,
+#              split-DNS dnsmasq (VM names for the tailnet)
+#   fileserver SMB shares over /upool (distr, mssql-backups)
+#   vm_clone   per-instance VM from the golden image (zfs clone, derived MAC,
+#              first-boot rename) — inventory-driven, group acu
+#   mssql      per-instance Windows layer (data disk + SQL Server), group acu
+#   acumatica  Acumatica ERP: installer MSI from the distr share + IIS/ac.exe
+#              instance deployment (db + site), group acu
+#
+#   ansible-playbook site.yml [--tags <role>] [-l acu-dev1]
+#
+- name: Configure kronos as KVM host for Windows / Acumatica instances
+  hosts: kronos
+  roles:
+    - { role: kvm, tags: kvm }
+    - { role: storage, tags: storage }
+    - { role: network, tags: network }
+    - { role: fileserver, tags: fileserver }
+    - { role: fish_shell, tags: fish }
+
+# no gather_facts: the guest may not exist yet — the role creates it
+- name: Clone Windows guests from the golden image (per inventory)
+  hosts: acu
+  gather_facts: false
+  roles:
+    - { role: vm_clone, tags: vm }
+
+- name: Acumatica instances — data disk + SQL Server + Acumatica installer
+  hosts: acu
+  gather_facts: true
+  roles:
+    - { role: mssql, tags: mssql }
+    - { role: acumatica, tags: acumatica }

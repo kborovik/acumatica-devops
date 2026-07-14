@@ -1,0 +1,42 @@
+---
+- name: Install KVM / libvirt stack (UEFI + TPM 2.0 for Windows Server)
+  ansible.builtin.apt:
+    name:
+      - qemu-system-x86
+      - qemu-utils
+      - libvirt-daemon-system
+      - libvirt-clients
+      - virtinst
+      - ovmf
+      - swtpm
+      - swtpm-tools
+      - guestfs-tools
+      - python3-libvirt   # for community.libvirt modules
+      - python3-lxml
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Add kb to libvirt and kvm groups
+  ansible.builtin.user:
+    name: kb
+    groups: [libvirt, kvm]
+    append: true
+
+- name: Enable and start libvirtd
+  ansible.builtin.service:
+    name: libvirtd
+    state: started
+    enabled: true
+
+- name: Install VM lifecycle scripts (win-vm-*, qga-exec)
+  ansible.builtin.copy:
+    src: "{{ item }}"
+    dest: /usr/local/bin/{{ item }}
+    mode: "0755"
+    owner: root
+    group: root
+  loop:
+    - win-vm-create
+    - win-vm-rm
+    - qga-exec

@@ -1,0 +1,122 @@
+---
+# SMB shares over the /upool datasets (created by the storage role):
+#   [distr]          /upool/distr          ISO images / installers
+#   [mssql-backups]  /upool/backups/mssql  SQL-native .bak dumps from the VMs
+# Generated passwords: 8 chars, alphanumeric only, root-readable on kronos.
+
+- name: Install samba (+ smbclient for share checks from the host)
+  ansible.builtin.apt:
+    name:
+      - samba
+      - smbclient
+    state: present
+
+# --- distr share --------------------------------------------------------------
+
+- name: Samba-only service account (distr)
+  ansible.builtin.user:
+    name: "{{ smb_distr_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    password: "!"
+
+- name: Share root owned by service account (kb group-writable)
+  ansible.builtin.file:
+    path: "{{ distr_mount }}"
+    state: directory
+    owner: "{{ smb_distr_user }}"
+    group: kb
+    mode: "2775"
+
+- name: ISO / installer directories
+  ansible.builtin.file:
+    path: "{{ distr_mount }}/{{ item }}"
+    state: directory
+    owner: "{{ smb_distr_user }}"
+    group: kb
+    mode: "2775"
+  loop:
+    - iso
+    - installers
+
+- name: Generate distr samba credential (kept root-only on kronos)
+  ansible.builtin.shell: umask 077 && tr -dc A-Za-z0-9 </dev/urandom | head -c8 > /root/svc-distr.smbpasswd
+  args:
+    creates: /root/svc-distr.smbpasswd
+
+- name: Register distr samba user with generated credential
+  ansible.builtin.shell: >
+    set -o pipefail;
+    P=$(cat /root/svc-distr.smbpasswd);
+    printf '%s\n%s\n' "$P" "$P" | smbpasswd -s -a {{ smb_distr_user }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Define distr share
+  ansible.builtin.blockinfile:
+    path: /etc/samba/smb.conf
+    marker: "# {mark} ANSIBLE distr"
+    block: |
+      [distr]
+        path = {{ distr_mount }}
+        valid users = {{ smb_distr_user }}
+        writable = yes
+        browseable = yes
+        force user = {{ smb_distr_user }}
+        force group = kb
+        create mask = 0664
+        directory mask = 2775
+  notify: restart smbd
+
+# --- mssql-backups share -------------------------------------------------------
+
+- name: Samba-only service account (backups)
+  ansible.builtin.user:
+    name: "{{ smb_backup_user }}"
+    system: true
+    shell: /usr/sbin/nologin
+    create_home: false
+    password: "!"
+
+- name: Backup share owned by service account (kb group-writable)
+  ansible.builtin.file:
+    path: "{{ mssql_backup_mount }}"
+    state: directory
+    owner: "{{ smb_backup_user }}"
+    group: "{{ smb_backup_user }}"
+    mode: "0770"
+
+- name: Generate backup samba credential (kept root-only on kronos)
+  ansible.builtin.shell: umask 077 && tr -dc A-Za-z0-9 </dev/urandom | head -c8 > /root/svc-backup.smbpasswd
+  args:
+    creates: /root/svc-backup.smbpasswd
+
+- name: Register backup samba user with generated credential
+  ansible.builtin.shell: >
+    set -o pipefail;
+    P=$(cat /root/svc-backup.smbpasswd);
+    printf '%s\n%s\n' "$P" "$P" | smbpasswd -s -a {{ smb_backup_user }}
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Define mssql-backups share
+  ansible.builtin.blockinfile:
+    path: /etc/samba/smb.conf
+    marker: "# {mark} ANSIBLE mssql-backups"
+    block: |
+      [mssql-backups]
+        path = {{ mssql_backup_mount }}
+        valid users = {{ smb_backup_user }}
+        writable = yes
+        browseable = yes
+        force user = {{ smb_backup_user }}
+  notify: restart smbd
+
+- name: Enable and start smbd
+  ansible.builtin.service:
+    name: smbd
+    state: started
+    enabled: true

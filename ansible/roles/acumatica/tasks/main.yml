@@ -1,0 +1,6 @@
+---
+- name: Acumatica ERP MSI in the guest (Configuration Wizard + ac.exe)
+  ansible.builtin.import_tasks: install.yml
+
+- name: Application instance (IIS + ac.exe NewInstance)
+  ansible.builtin.import_tasks: instance.yml

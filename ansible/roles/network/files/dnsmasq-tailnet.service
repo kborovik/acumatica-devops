@@ -1,0 +1,11 @@
+[Unit]
+Description=dnsmasq serving VM names to the tailnet (Tailscale split DNS)
+After=network.target tailscaled.service
+
+[Service]
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --conf-file=/etc/dnsmasq-tailnet.conf --pid-file=
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

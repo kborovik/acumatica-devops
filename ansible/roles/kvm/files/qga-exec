@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+# qga-exec <vm> <program> [args...] — run a command in the guest via the
+# QEMU guest agent, wait, print decoded stdout/stderr.
+import base64
+import json
+import subprocess
+import sys
+import time
+
+
+def qga(vm, cmd):
+    out = subprocess.run(["virsh", "qemu-agent-command", vm, json.dumps(cmd)],
+                         check=True, capture_output=True, text=True).stdout
+    return json.loads(out)["return"]
+
+
+def main():
+    if len(sys.argv) < 3:
+        sys.exit("usage: qga-exec <vm> <program> [args...]")
+    vm, prog, *args = sys.argv[1:]
+
+    pid = qga(vm, {"execute": "guest-exec", "arguments":
+                   {"path": prog, "arg": args, "capture-output": True}})["pid"]
+
+    for _ in range(30):
+        st = qga(vm, {"execute": "guest-exec-status",
+                      "arguments": {"pid": pid}})
+        if st["exited"]:
+            print("exitcode:", st.get("exitcode"))
+            for k in ("out-data", "err-data"):
+                if st.get(k):
+                    print(base64.b64decode(st[k]).decode("utf-8", "replace"))
+            sys.exit(0)
+        time.sleep(1)
+    sys.exit("timed out waiting for guest command")
+
+
+main()

@@ -1,0 +1,4 @@
+---
+# Lint at the 'min' profile: catch fatal/syntax errors while tolerating the
+# repo's established conventions (unprefixed register/vars, shell pipes).
+profile: min

@@ -1,0 +1,19 @@
+---
+- name: Guest must be renamed before SQL Server install (name is recorded at install time)
+  ansible.builtin.assert:
+    that: ansible_facts['hostname'] | lower == inventory_hostname | lower
+    fail_msg: >-
+      guest reports hostname '{{ ansible_facts['hostname'] }}' —
+      Rename-Computer first (see docs/windows-vms.md)
+
+- name: Host-side resources on kronos (ISO, sa password, zvol, hot-plug)
+  ansible.builtin.import_tasks: kronos.yml
+
+- name: Data disk in the guest
+  ansible.builtin.import_tasks: data_disk.yml
+
+- name: SQL Server in the guest
+  ansible.builtin.import_tasks: install.yml
+
+- name: SQL Server Management Studio in the guest
+  ansible.builtin.import_tasks: ssms.yml

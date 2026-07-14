@@ -1,0 +1,87 @@
+---
+- name: IIS + ASP.NET 4.8
+  ansible.windows.win_feature:
+    name: "{{ acumatica_windows_features }}"
+    state: present
+  register: acumatica_iis
+
+- name: Reboot if the feature install requested it
+  ansible.windows.win_reboot:
+  when: acumatica_iis.reboot_required
+
+- name: Query deployed instance
+  ansible.windows.win_shell: |
+    if ((Test-Path 'HKLM:\SOFTWARE\Acumatica ERP\{{ acumatica_instance_name }}') -or
+        (Test-Path '{{ acumatica_instance_path }}\web.config')) { 'present' } else { 'absent' }
+  register: acumatica_deployed
+  changed_when: false
+  check_mode: false # read-only probe; later conditionals need its output
+
+- name: Deploy instance {{ acumatica_instance_name }}
+  when: acumatica_deployed.stdout is not search('present')
+  block:
+    - name: Read sa password from kronos
+      ansible.builtin.slurp:
+        src: "{{ mssql_sa_password_file }}"
+      register: sa_pw
+      delegate_to: kronos
+      become: true
+      no_log: true
+
+    # New database + IIS app in one shot. On failure ac.exe logs to stdout;
+    # the tenant insert makes this take several minutes (longer for SalesDemo).
+    - name: Run ac.exe -configmode NewInstance (5-15 min)
+      ansible.windows.win_shell: |
+        & '{{ acumatica_ac_exe }}' -configmode:"NewInstance" -output:"Forced" `
+          -dbsrvname:"(local)" -dbsrvwinauth:"True" `
+          -dbname:"{{ acumatica_db_name }}" -dbnew:"True" `
+          -dbwinauth:"False" -dbnewuser:"False" -dbuser:"sa" -dbpass:"{{ sa_pw.content | b64decode | trim }}" `
+          -company:"CompanyID=1;" `
+          -company:"CompanyID=2;ParentID=1;Visible=Yes;CompanyType={{ acumatica_tenant_type }};LoginName=Company;" `
+          -iname:"{{ acumatica_instance_name }}" -ipath:"{{ acumatica_instance_path }}" `
+          -swebsite:"{{ acumatica_website }}" -svirtdir:"{{ acumatica_instance_name }}" `
+          -spool:"{{ acumatica_instance_name }}"
+        exit $LASTEXITCODE
+      register: acumatica_deploy
+      no_log: true
+
+# Convenience: http://<vm>/ 302s to the instance. The redirect is enabled
+# site-wide and would inherit into the /{{ acumatica_instance_name }} app
+# (redirect loop), so a <location> override disables it there — all in the
+# site-root web.config, never touching Acumatica's own.
+- name: Redirect site root to /{{ acumatica_instance_name }}
+  ansible.windows.win_copy:
+    dest: '{{ acumatica_website_root }}\web.config'
+    content: |
+      <?xml version="1.0" encoding="UTF-8"?>
+      <configuration>
+          <system.webServer>
+              <httpRedirect enabled="true" destination="/{{ acumatica_instance_name }}" httpResponseStatus="Found" />
+          </system.webServer>
+          <location path="{{ acumatica_instance_name }}">
+              <system.webServer>
+                  <httpRedirect enabled="false" />
+              </system.webServer>
+          </location>
+      </configuration>
+
+- name: Allow HTTP through the firewall (browse from the tailnet)
+  community.windows.win_firewall_rule:
+    name: HTTP (TCP 80)
+    localport: "80"
+    protocol: tcp
+    direction: in
+    action: allow
+    state: present
+    enabled: true
+
+# First hit compiles the site — give it time.
+- name: Login page answers
+  ansible.windows.win_uri:
+    url: http://localhost/{{ acumatica_instance_name }}/Frames/Login.aspx
+    status_code: 200
+    timeout: 120
+  register: acumatica_login
+  retries: 5
+  delay: 15
+  until: acumatica_login is succeeded

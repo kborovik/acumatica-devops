@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# win-vm-rm — destroy a VM and its zvol (and the zvol's snapshots).
+#
+#   win-vm-rm <name> --yes
+#
+# Refuses to destroy a zvol that has dependent clones (i.e. a golden image
+# other VMs were cloned from) — remove or promote the clones first.
+set -euo pipefail
+
+ZVOL_PARENT=upool/vms
+
+[[ ${2:-} == "--yes" ]] || { grep '^#   ' "$0" >&2; exit 1; }
+NAME=$1
+
+virsh destroy "$NAME" 2>/dev/null || true
+virsh undefine "$NAME" --nvram --tpm 2>/dev/null || virsh undefine "$NAME" --nvram || true
+
+if zfs list "$ZVOL_PARENT/$NAME" >/dev/null 2>&1; then
+    zfs destroy -r "$ZVOL_PARENT/$NAME"   # fails safely if clones depend on it
+fi
+echo "removed $NAME"

@@ -1,0 +1,35 @@
+---
+# SQL Server Management Studio 22 (VS-installer based, no standalone MSI).
+# The bootstrapper pulls the payload (~700 MB) from Microsoft during install,
+# so the guest needs internet (libvirt NAT) — the distr share gains nothing.
+- name: Check for SSMS (via the VS installer's vswhere)
+  ansible.windows.win_shell: |
+    $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+    if ((Test-Path $vswhere) -and (& $vswhere -products Microsoft.VisualStudio.Product.Ssms -property installationPath)) {
+      'present'
+    } else { 'absent' }
+  register: ssms_check
+  changed_when: false
+  check_mode: false # read-only probe; later conditionals need its output
+
+- name: Install SSMS
+  when: ssms_check.stdout is not search('present')
+  block:
+    - name: Download SSMS bootstrapper
+      ansible.windows.win_get_url:
+        url: "{{ ssms_url }}"
+        dest: C:\Windows\Temp\vs_SSMS.exe
+
+    - name: Run unattended SSMS setup (downloads the payload; 10+ min)
+      ansible.windows.win_command: C:\Windows\Temp\vs_SSMS.exe --quiet --wait --norestart
+      register: ssms_setup
+      failed_when: ssms_setup.rc not in [0, 3010]
+
+    - name: Reboot if setup requested it
+      ansible.windows.win_reboot:
+      when: ssms_setup.rc == 3010
+
+    - name: Remove bootstrapper
+      ansible.windows.win_file:
+        path: C:\Windows\Temp\vs_SSMS.exe
+        state: absent

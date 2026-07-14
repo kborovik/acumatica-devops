@@ -1,0 +1,88 @@
+---
+- name: Query SQL Server service
+  ansible.windows.win_service_info:
+    name: "{{ mssql_instance_name }}"
+  register: mssql_svc
+
+- name: Install SQL Server
+  when: mssql_svc.services | length == 0
+  block:
+    - name: Insert the SQL Server ISO into the guest's CD drive
+      ansible.builtin.command: >-
+        virsh change-media {{ inventory_hostname }} {{ mssql_iso_cdrom }}
+        {{ mssql_iso }} --update --live --config
+      delegate_to: kronos
+      become: true
+
+    - name: Locate SQL Server setup on a CD drive
+      ansible.windows.win_shell: |
+        $d = (Get-CimInstance Win32_CDROMDrive).Drive |
+          Where-Object { (Test-Path "$_\setup.exe") -and (Test-Path "$_\x64") } |
+          Select-Object -First 1
+        if (-not $d) { exit 1 }
+        $d
+      register: sql_media
+      retries: 6
+      delay: 5
+      until: sql_media.rc == 0
+      changed_when: false
+
+    - name: Read sa password from kronos
+      ansible.builtin.slurp:
+        src: "{{ mssql_sa_password_file }}"
+      register: sa_pw
+      delegate_to: kronos
+      become: true
+      no_log: true
+
+    # Engine + Agent, mixed mode, everything data-ish on the data disk.
+    # On failure see C:\Program Files\Microsoft SQL Server\*\Setup Bootstrap\Log\Summary.txt.
+    - name: Run unattended setup (10-20 min)
+      ansible.windows.win_shell: |
+        & "{{ sql_media.stdout | trim }}\setup.exe" /Q /ACTION=Install /IACCEPTSQLSERVERLICENSETERMS `
+          /FEATURES=SQLENGINE /INSTANCENAME={{ mssql_instance_name }} `
+          /SQLSYSADMINACCOUNTS="BUILTIN\Administrators" `
+          /SECURITYMODE=SQL /SAPWD="{{ sa_pw.content | b64decode | trim }}" `
+          /SQLSVCINSTANTFILEINIT=True /TCPENABLED=1 /UPDATEENABLED=False `
+          /AGTSVCSTARTUPTYPE=Automatic `
+          /SQLUSERDBDIR="{{ mssql_data_drive }}:\MSSQL\Data" /SQLUSERDBLOGDIR="{{ mssql_data_drive }}:\MSSQL\Log" `
+          /SQLTEMPDBDIR="{{ mssql_data_drive }}:\MSSQL\TempDB" /SQLTEMPDBLOGDIR="{{ mssql_data_drive }}:\MSSQL\TempDB"
+        exit $LASTEXITCODE
+      register: sql_setup
+      failed_when: sql_setup.rc not in [0, 3010]
+      no_log: true
+
+    - name: Reboot if setup requested it
+      ansible.windows.win_reboot:
+      when: sql_setup.rc == 3010
+
+    - name: Eject the ISO
+      ansible.builtin.command: >-
+        virsh change-media {{ inventory_hostname }} {{ mssql_iso_cdrom }}
+        --eject --force --live --config
+      delegate_to: kronos
+      become: true
+
+- name: Allow SQL Server through the firewall (SSMS / Acumatica over the tailnet)
+  community.windows.win_firewall_rule:
+    name: SQL Server (TCP 1433)
+    localport: "1433"
+    protocol: tcp
+    direction: in
+    action: allow
+    state: present
+    enabled: true
+
+- name: SQL Server + Agent running and automatic
+  ansible.windows.win_service:
+    name: "{{ item }}"
+    state: started
+    start_mode: auto
+  loop:
+    - "{{ mssql_instance_name }}"
+    - SQLSERVERAGENT
+
+- name: SQL Server answers on 1433
+  ansible.windows.win_wait_for:
+    port: 1433
+    timeout: 60

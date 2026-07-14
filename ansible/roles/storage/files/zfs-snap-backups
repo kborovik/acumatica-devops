@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# zfs-snap-backups <dataset> <keep> — daily snapshot + retention prune.
+# Snapshots are named @auto-YYYYMMDD-HHMM; only auto-* snapshots are pruned.
+set -euo pipefail
+
+DS=$1 KEEP=$2
+
+zfs snapshot "${DS}@auto-$(date +%Y%m%d-%H%M)"
+
+zfs list -H -t snapshot -o name -s creation "$DS" \
+    | grep "^${DS}@auto-" \
+    | head -n -"$KEEP" \
+    | xargs -r -n1 zfs destroy

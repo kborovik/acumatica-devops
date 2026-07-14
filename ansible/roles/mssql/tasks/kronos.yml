@@ -1,0 +1,45 @@
+---
+# Per-instance resources on the KVM host, run on behalf of the guest.
+- name: Host-side per-instance resources
+  delegate_to: kronos
+  become: true
+  block:
+    - name: SQL Server ISO on the distr share
+      ansible.builtin.get_url:
+        url: "{{ mssql_iso_url }}"
+        dest: "{{ mssql_iso }}"
+        owner: "{{ smb_distr_user }}"
+        group: kb
+        mode: "0664"
+
+    # 8 chars, alphanumeric; the fixed suffix guarantees the 3-of-4 character
+    # classes SQL Server enforces on sa.
+    - name: Generate sa password (root-only on kronos)
+      ansible.builtin.shell: umask 077 && echo "$(tr -dc A-Za-z0-9 </dev/urandom | head -c5)9aZ" > {{ mssql_sa_password_file }}
+      args:
+        creates: "{{ mssql_sa_password_file }}"
+
+    - name: Check data zvol
+      ansible.builtin.command: zfs list {{ mssql_data_zvol }}
+      register: zvol_check
+      failed_when: false
+      changed_when: false
+      check_mode: false # read-only probe; later conditionals need its output
+
+    - name: Create data zvol (sparse, 64k volblocksize like the OS disks)
+      ansible.builtin.command: >-
+        zfs create -s -V {{ mssql_data_disk_size }} -o volblocksize=64k {{ mssql_data_zvol }}
+      when: zvol_check.rc != 0
+
+    - name: Check the data disk is attached to the domain
+      ansible.builtin.shell: virsh domblklist {{ inventory_hostname }} | grep -F {{ mssql_data_zvol }}
+      register: attach_check
+      failed_when: false
+      changed_when: false
+      check_mode: false # read-only probe; later conditionals need its output
+
+    - name: Hot-plug the data disk (also persists it in the domain XML)
+      ansible.builtin.command: >-
+        virt-xml {{ inventory_hostname }} --update --add-device
+        --disk path=/dev/zvol/{{ mssql_data_zvol }},bus=virtio,format=raw,cache=none,discard=unmap
+      when: attach_check.rc != 0

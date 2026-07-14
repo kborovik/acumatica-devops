@@ -1,0 +1,48 @@
+---
+- name: Install fish and CLI tools used by the config
+  ansible.builtin.apt:
+    name:
+      - fish
+      - git
+      - tree
+    state: present
+
+- name: Create fish config directories
+  ansible.builtin.file:
+    path: /home/{{ fish_user }}/.config/fish/{{ item }}
+    state: directory
+    owner: "{{ fish_user }}"
+    group: "{{ fish_user }}"
+    mode: "0755"
+  loop:
+    - conf.d
+    - functions
+
+- name: Deploy config.fish
+  ansible.builtin.copy:
+    src: config.fish
+    dest: /home/{{ fish_user }}/.config/fish/config.fish
+    owner: "{{ fish_user }}"
+    group: "{{ fish_user }}"
+    mode: "0644"
+
+- name: Deploy conf.d snippets (vi key bindings, Catppuccin Macchiato theme)
+  ansible.builtin.copy:
+    src: conf.d/
+    dest: /home/{{ fish_user }}/.config/fish/conf.d/
+    owner: "{{ fish_user }}"
+    group: "{{ fish_user }}"
+    mode: "0644"
+
+- name: Deploy functions (prompt, key bindings, gen-pass)
+  ansible.builtin.copy:
+    src: functions/
+    dest: /home/{{ fish_user }}/.config/fish/functions/
+    owner: "{{ fish_user }}"
+    group: "{{ fish_user }}"
+    mode: "0644"
+
+- name: Set fish as login shell for {{ fish_user }}
+  ansible.builtin.user:
+    name: "{{ fish_user }}"
+    shell: /usr/bin/fish

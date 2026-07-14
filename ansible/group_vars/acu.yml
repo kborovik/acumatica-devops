@@ -1,0 +1,15 @@
+# Windows guests, reached over the tailnet-routed VM subnet (192.168.122.0/24)
+# via the OpenSSH server baked into the golden image (DefaultShell = powershell,
+# key auth for Administrator).
+#
+# Each guest's identity comes from the inventory: vm_ip (required, the reserved
+# lease) and vm_mac (optional — by default derived from vm_ip's last octet, so
+# the clone is created with a MAC whose DHCP/DNS records already exist).
+vm_mac: "{{ '52:54:00:7a:00:%02x' | format(vm_ip.split('.') | last | int) }}"
+vm_dhcp_entry: { name: '{{ inventory_hostname }}', mac: '{{ vm_mac }}', ip: '{{ vm_ip }}' }
+
+ansible_host: "{{ vm_ip }}"
+ansible_user: Administrator
+ansible_shell_type: powershell
+ansible_become: false # no sudo on Windows; privileged tasks delegate to kronos
+ansible_pipelining: false # SSH pipelining is unreliable with the powershell wrapper

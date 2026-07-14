@@ -1,0 +1,19 @@
+---
+# Data disk: sparse zvol on kronos, hot-plugged as a second virtio disk,
+# formatted in the guest. Separate from the OS zvol so `zfs rollback` of the
+# OS disk never rolls the databases back with it.
+mssql_data_disk_size: 100G # sparse — costs nothing until written
+mssql_data_drive: D
+mssql_data_zvol: "{{ vm_zvol_parent }}/{{ inventory_hostname }}-data"
+
+# SQL Server 2025 Developer (Enterprise): free, no expiry, dev/test-only
+# license. Downloaded once to the distr share by this role.
+mssql_iso_url: https://download.microsoft.com/download/dea8c210-c44a-4a9d-9d80-0c81578860c5/ENU/SQLServer2025-x64-ENU-EntDev.iso
+mssql_iso: "{{ distr_mount }}/installers/{{ mssql_iso_url | basename }}"
+mssql_iso_cdrom: sda # the clone's first CD drive (held the Windows install ISO)
+
+mssql_instance_name: MSSQLSERVER
+mssql_sa_password_file: /root/mssql-sa-{{ inventory_hostname }}.pass # on kronos, root-only
+
+# SQL Server Management Studio 22 (bootstrapper; payload downloaded at install time)
+ssms_url: https://aka.ms/ssms/22/release/vs_SSMS.exe

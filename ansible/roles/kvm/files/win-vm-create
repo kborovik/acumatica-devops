@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# win-vm-create — create a Windows VM on a fresh zvol and boot its installer.
+#
+#   win-vm-create <name> <windows-iso> [disk=120G] [ram-MiB=8192] [vcpus=4]
+#
+# UEFI + emulated TPM 2.0 (Windows Server 2025 / Win11 requirement), virtio
+# disk & NIC (load drivers from the attached virtio-win ISO during setup).
+# Console: VNC on localhost — connect via `ssh -L 5900:127.0.0.1:5900 kronos`.
+set -euo pipefail
+
+ZVOL_PARENT=upool/vms
+VIRTIO_ISO=/upool/distr/iso/virtio-win-0.1.285.iso
+OSINFO=${OSINFO:-win2k22}
+
+[[ $# -ge 2 ]] || { grep '^#   ' "$0" | head -1 >&2; exit 1; }
+NAME=$1 ISO=$2 DISK=${3:-120G} RAM=${4:-8192} VCPUS=${5:-4}
+ZVOL=$ZVOL_PARENT/$NAME
+
+[[ -f $ISO ]] || { echo "ISO not found: $ISO" >&2; exit 1; }
+! virsh dominfo "$NAME" >/dev/null 2>&1 || { echo "domain $NAME exists" >&2; exit 1; }
+
+# sparse zvol; 64k volblocksize aligns with MSSQL's 64 KiB I/O
+zfs list "$ZVOL" >/dev/null 2>&1 || \
+    zfs create -s -V "$DISK" -o volblocksize=64k "$ZVOL"
+
+virt-install \
+    --name "$NAME" \
+    --memory "$RAM" \
+    --vcpus "$VCPUS" \
+    --cpu host-passthrough \
+    --osinfo "$OSINFO" \
+    --boot uefi \
+    --tpm backend.type=emulator,backend.version=2.0,model=tpm-crb \
+    --disk path=/dev/zvol/$ZVOL,bus=virtio,format=raw,cache=none,discard=unmap \
+    --disk path="$ISO",device=cdrom \
+    --disk path="$VIRTIO_ISO",device=cdrom \
+    --network network=default,model=virtio \
+    --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0 \
+    --graphics vnc,listen=127.0.0.1 \
+    --noautoconsole
+
+echo "VM $NAME created. VNC: $(virsh vncdisplay "$NAME" 2>/dev/null || echo 'see virsh vncdisplay')"

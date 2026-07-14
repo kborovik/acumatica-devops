@@ -1,0 +1,7 @@
+---
+# ansible-galaxy collection install -r requirements.yml
+collections:
+  - name: community.general # zfs, kronos host roles
+  - name: community.libvirt # virt_net (network), virt (vm_clone)
+  - name: ansible.windows # win_* basics for the acu guests
+  - name: community.windows # win_partition / win_format / win_firewall_rule

@@ -1,0 +1,110 @@
+---
+# VM networking: the libvirt default NAT network (static DHCP leases from
+# vm_dhcp_hosts) and its exposure to the tailnet — kronos advertises
+# {{ vm_subnet }} as a Tailscale subnet router, and a libvirt network hook
+# keeps the tailscale0 -> virbr0 firewall rule above libvirt's reject rules.
+# NOTE: the advertised route must be approved once in the Tailscale admin
+# console before other tailnet devices can use it.
+
+- name: Activate default NAT network
+  community.libvirt.virt_net:
+    name: default
+    state: active
+
+- name: Autostart default NAT network
+  community.libvirt.virt_net:
+    name: default
+    autostart: true
+
+- name: Persist IPv4 forwarding
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_forward
+    value: "1"
+    sysctl_file: /etc/sysctl.d/99-tailscale-router.conf
+
+- name: Libvirt hooks directory
+  ansible.builtin.file:
+    path: /etc/libvirt/hooks
+    state: directory
+    mode: "0755"
+
+- name: Install libvirt network hook (re-adds allow rule on network start)
+  ansible.builtin.copy:
+    src: libvirt-hook-network
+    dest: /etc/libvirt/hooks/network
+    mode: "0755"
+
+- name: Allow tailnet -> VM bridge now
+  ansible.builtin.shell: >
+    iptables -C FORWARD -i tailscale0 -o virbr0 -j ACCEPT 2>/dev/null
+    || { iptables -I FORWARD 1 -i tailscale0 -o virbr0 -j ACCEPT; echo added; }
+  register: fw_rule
+  changed_when: "'added' in fw_rule.stdout"
+
+- name: Check advertised routes
+  ansible.builtin.command: tailscale debug prefs
+  register: ts_prefs
+  changed_when: false
+
+- name: Advertise VM subnet to tailnet
+  ansible.builtin.command: tailscale set --advertise-routes={{ vm_subnet }}
+  when: vm_subnet not in ts_prefs.stdout
+
+# add-last refuses when an entry with the same name/ip already exists (e.g.
+# the VM was recreated with a new MAC) — modify replaces it in place, so try
+# that first and fall back to add-last for genuinely new entries.
+- name: Static DHCP leases for VMs (stable RDP targets)
+  ansible.builtin.shell: >
+    virsh net-dumpxml default | grep -qi "{{ item.mac }}"
+    || virsh net-update default modify ip-dhcp-host
+    "<host mac='{{ item.mac }}' name='{{ item.name }}' ip='{{ item.ip }}'/>"
+    --live --config 2>/dev/null
+    || virsh net-update default add-last ip-dhcp-host
+    "<host mac='{{ item.mac }}' name='{{ item.name }}' ip='{{ item.ip }}'/>"
+    --live --config
+  loop: "{{ vm_dhcp_hosts }}"
+  register: dhcp_upd
+  changed_when: "'Updated' in dhcp_upd.stdout"
+
+# --- VM names for tailnet clients (Tailscale split DNS) -----------------------
+# libvirt's dnsmasq already resolves the lease names but is locked to virbr0,
+# so a dedicated dnsmasq instance answers <name>.{{ vm_dns_domain }} on the
+# tailscale interface instead. It runs as its own unit (dnsmasq-tailnet) with
+# its own conf-file: the stock dnsmasq.service reads /etc/dnsmasq.d, where
+# libvirt symlinks a bind-interfaces snippet that conflicts with the
+# bind-dynamic we need to survive tailscale0 disappearing/reappearing.
+# NOTE: one-time step in the Tailscale admin console, like the route approval
+# above: DNS -> Add nameserver -> Custom -> kronos's tailnet 100.x IP,
+# restricted to domain {{ vm_dns_domain }}.
+
+- name: Install dnsmasq
+  ansible.builtin.apt:
+    name: dnsmasq
+    state: present
+
+- name: Disable stock dnsmasq service (dnsmasq-tailnet replaces it)
+  ansible.builtin.systemd_service:
+    name: dnsmasq
+    enabled: false
+    state: stopped
+
+- name: Dnsmasq config — VM host records on the tailscale interface
+  ansible.builtin.template:
+    src: dnsmasq-tailnet.conf.j2
+    dest: /etc/dnsmasq-tailnet.conf
+    mode: "0644"
+  notify: Restart dnsmasq-tailnet
+
+- name: Dnsmasq-tailnet unit
+  ansible.builtin.copy:
+    src: dnsmasq-tailnet.service
+    dest: /etc/systemd/system/dnsmasq-tailnet.service
+    mode: "0644"
+  notify: Restart dnsmasq-tailnet
+
+- name: Enable dnsmasq-tailnet
+  ansible.builtin.systemd_service:
+    name: dnsmasq-tailnet
+    enabled: true
+    state: started
+    daemon_reload: true

@@ -1,0 +1,52 @@
+---
+- name: Installer must be staged on the distr share
+  ansible.builtin.stat:
+    path: "{{ acumatica_msi }}"
+    get_checksum: false
+  register: acumatica_msi_stat
+  delegate_to: kronos
+  failed_when: not acumatica_msi_stat.stat.exists
+
+- name: Query installed Acumatica ERP versions
+  ansible.windows.win_shell: |
+    (Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                      'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*' `
+                      -ErrorAction SilentlyContinue |
+      Where-Object { $_.DisplayName -like 'Acumatica ERP*' }).DisplayVersion
+  register: acumatica_installed
+  changed_when: false
+  check_mode: false # read-only probe; later conditionals need its output
+
+- name: Install Acumatica ERP {{ acumatica_version }}
+  when: acumatica_version not in acumatica_installed.stdout
+  block:
+    - name: Read distr share password from kronos
+      ansible.builtin.slurp:
+        src: "{{ acumatica_smb_password_file }}"
+      register: distr_pw
+      delegate_to: kronos
+      become: true
+      no_log: true
+
+    - name: Copy the MSI from the distr share (~1.5 GB)
+      ansible.windows.win_shell: |
+        $pw = ConvertTo-SecureString '{{ distr_pw.content | b64decode | trim }}' -AsPlainText -Force
+        $cred = New-Object System.Management.Automation.PSCredential('{{ smb_distr_user }}', $pw)
+        New-PSDrive -Name distr -PSProvider FileSystem -Root '{{ acumatica_distr_unc }}' -Credential $cred | Out-Null
+        Copy-Item 'distr:\installers\{{ acumatica_msi | basename }}' 'C:\Windows\Temp' -Force
+      no_log: true
+
+    - name: Run unattended MSI install
+      ansible.windows.win_package:
+        path: C:\Windows\Temp\{{ acumatica_msi | basename }}
+        state: present
+      register: acumatica_setup
+
+    - name: Reboot if the installer requested it
+      ansible.windows.win_reboot:
+      when: acumatica_setup.reboot_required | default(false)
+
+    - name: Remove the copied MSI
+      ansible.windows.win_file:
+        path: C:\Windows\Temp\{{ acumatica_msi | basename }}
+        state: absent
