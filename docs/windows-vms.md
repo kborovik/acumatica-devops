@@ -1,9 +1,10 @@
-# Windows Server / Acumatica instances on kronos
+# Windows Server / Acumatica instances
 
 VM disks are ZFS zvols (`upool/vms/<name>`, sparse, 64k volblocksize). A
-sysprepped **golden image** is cloned per Acumatica instance with
-`zfs clone` — instant, no data copied. All commands below run on kronos
-with sudo.
+**golden image** is cloned per Acumatica instance with `zfs clone` — instant,
+no data copied. All commands below run on the Ubuntu Linux host with sudo. That
+host is written as `<host>` in `ssh` and SMB paths — substitute the name you
+gave it in `~/.ssh/config`.
 
 ## 1. Build the golden image (once per Windows Server version)
 
@@ -14,9 +15,9 @@ with sudo.
 
        sudo win-vm-create ws2025-base /upool/distr/iso/<ws-iso> 120G 8192 4
 
-3. Connect to the console from the Mac and run Windows Setup:
+3. Connect to the console from your workstation and run Windows Setup:
 
-       ssh -L 5900:127.0.0.1:5900 kronos     # then VNC to localhost:5900
+       ssh -L 5900:127.0.0.1:5900 <host>     # then VNC to localhost:5900
 
    The disk is invisible until you *Load driver* → virtio-win CD →
    `vioscsi`/`viostor` and `NetKVM` for the NIC.
@@ -52,7 +53,7 @@ Instances are **inventory-driven**: add the VM under the `acu` group in
     make site                # everything: clone -> rename -> mssql -> acumatica
     make vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
 
-The `vm_clone` play (delegating host steps to kronos) per instance:
+The `vm_clone` play (delegating host steps to the Ubuntu Linux host) per instance:
 
 - derives a stable MAC from `vm_ip`'s last octet (`52:54:00:7a:00:xx`;
   override with `vm_mac` — acu-dev1 keeps its pre-derivation MAC this way),
@@ -71,10 +72,10 @@ to the login screen, SSH/RDP reachable with the golden image's credentials.
 The rename happens **before the mssql role installs SQL Server** (the
 machine name is recorded at install time; renaming afterwards needs
 `sp_dropserver`/`sp_addserver`) — the role asserts this.
-Installers (Acumatica MSI, SQL Server ISO, …) are on the `\\kronos\distr`
+Installers (Acumatica MSI, SQL Server ISO, …) are on the `\\<host>\distr`
 share (dataset `upool/distr`, `fileserver` role): `installers/` for
 application setups, `iso/` for OS/driver images. Credentials: user
-`svc-distr`, password in `/root/svc-distr.smbpasswd` on kronos.
+`svc-distr`, password in `/root/svc-distr.smbpasswd` on the host.
 Remove an instance with `sudo win-vm-rm acu-dev1 --yes` (the golden zvol
 cannot be removed while clones depend on it).
 
@@ -98,7 +99,7 @@ The play is idempotent; per guest it
   (`virsh change-media` — no share credentials needed in the guest), and runs
   an unattended install: engine + agent, mixed mode, TCP 1433 open,
   data/log/tempdb on `D:\MSSQL`;
-- generates the `sa` password on kronos at `/root/mssql-sa-<name>.pass`
+- generates the `sa` password on the host at `/root/mssql-sa-<name>.pass`
   (`BUILTIN\Administrators` is also sysadmin, so Windows auth works too);
 - installs SQL Server Management Studio 22 (bootstrapper from
   `aka.ms/ssms/22`; the payload downloads from Microsoft at install time,
@@ -118,14 +119,14 @@ application instance in one pass:
 
 First the installer (`installers/AcumaticaERPInstall-<version>.msi` on the
 distr share — stage new builds there manually and bump `acumatica_version`):
-the MSI is copied into the guest over `\\kronos\distr` (svc-distr credential
-read from kronos) and run unattended, laying down the Configuration Wizard
+the MSI is copied into the guest over `\\<host>\distr` (svc-distr credential
+read from the host) and run unattended, laying down the Configuration Wizard
 and `ac.exe` under `C:\Program Files\Acumatica ERP`.
 
 Then the instance: it enables IIS + ASP.NET 4.8 and runs
 `ac.exe -configmode:"NewInstance"`:
 database `AcumaticaDB` on the local SQL Server (created new; runtime
-connection uses the sa password from kronos), site
+connection uses the sa password from the host), site
 `C:\Acumatica\AcumaticaERP` under Default Web Site, one visible tenant
 (`acumatica_tenant_type: SalesDemo` preloads demo data; default is a clean
 template). Port 80 is opened and the site root 302s to the instance
@@ -137,19 +138,19 @@ IIS app and the database, then re-running the role.
 
 ### Access over Tailscale
 
-Kronos is a Tailscale **subnet router** for the VM network (192.168.122.0/24,
-`network` role) — any tailnet device reaches VMs directly: RDP to
-`192.168.122.x`, browse Acumatica on `http://192.168.122.x`, etc. The
+The Ubuntu Linux host is a Tailscale **subnet router** for the VM network
+(192.168.122.0/24, `network` role) — any tailnet device reaches VMs directly:
+RDP to `192.168.122.x`, browse Acumatica on `http://192.168.122.x`, etc. The
 advertised route needs a **one-time approval** in the Tailscale admin console
-(Machines → kronos → route settings).
+(Machines → the host → route settings).
 
 Stable IPs come from the inventory (`vm_ip` per host — the `network` role
 turns them into static DHCP leases and DNS records). Fallback without the
-approved route: `ssh -L 3389:<vm-ip>:3389 kronos`.
+approved route: `ssh -L 3389:<vm-ip>:3389 <host>`.
 
 ### In-guest rescue without SSH/RDP
 
-`qga-exec` (on kronos) runs a command inside a Windows VM through the QEMU
+`qga-exec` (on the host) runs a command inside a Windows VM through the QEMU
 guest agent — works even when SSH and RDP are broken:
 
     sudo qga-exec ws2025-base 'C:\Windows\System32\whoami.exe'
@@ -160,13 +161,13 @@ guest agent — works even when SSH and RDP are broken:
 
 Two complementary layers:
 
-**SQL-native backups (per-database, restorable anywhere).** Kronos exports
-`\\kronos\mssql-backups` (dataset `upool/backups/mssql`, zstd-compressed).
-Credentials: user `svc-backup`, password in `/root/svc-backup.smbpasswd`
-on kronos. In each instance, schedule (SQL Agent):
+**SQL-native backups (per-database, restorable anywhere).** The Ubuntu Linux
+host exports `\\<host>\mssql-backups` (dataset `upool/backups/mssql`,
+zstd-compressed). Credentials: user `svc-backup`, password in
+`/root/svc-backup.smbpasswd` on the host. In each instance, schedule (SQL Agent):
 
     BACKUP DATABASE AcumaticaDB
-      TO DISK = '\\kronos\mssql-backups\acu-dev1\AcumaticaDB.bak'
+      TO DISK = '\\<host>\mssql-backups\acu-dev1\AcumaticaDB.bak'
       WITH INIT, COMPRESSION;
 
 Restore with `RESTORE DATABASE ... FROM DISK = ...`. The share is

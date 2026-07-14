@@ -1,67 +1,67 @@
 # Acumatica DevOps
 
 Ansible-managed Ubuntu Linux infrastructure for a test/dev **Acumatica ERP** lab.
-One host, `kronos`, runs KVM. Each Acumatica instance is a Windows Server VM
+One Ubuntu Linux host runs KVM. Each Acumatica instance is a Windows Server VM
 cloned from a golden image. This README is the operator manual.
+
+Commands below write the host's SSH alias as `<host>` — substitute the name you
+gave it in `~/.ssh/config`.
 
 ## What this repo does
 
-- Configures `kronos` as a KVM hypervisor with ZFS storage, libvirt NAT, SMB
-  shares, and a Tailscale subnet router.
+- Configures the Ubuntu Linux host as a KVM hypervisor with ZFS storage, libvirt
+  NAT, SMB shares, and a Tailscale subnet router.
 - Clones a Windows Server golden image into one VM per Acumatica instance.
 - Installs SQL Server and Acumatica ERP into each instance, unattended.
 
-Everything runs through Ansible from your Mac. All host changes go through
-Ansible — do not hand-edit `kronos`.
+Everything runs through Ansible from a control machine. All host changes go
+through Ansible — do not hand-edit the host directly.
 
 ## Prerequisites
 
-Run Ansible from your Mac (the control machine). You need:
+Run Ansible from a control machine — a workstation (macOS or Linux) or a CI
+runner such as a self-hosted GitHub Actions runner. You need:
 
-- SSH access to `kronos` — see [Remote host](#remote-host).
-- Ansible installed locally (`brew install ansible`).
+- SSH access to the Ubuntu Linux host — see [Remote host](#remote-host).
+- Ansible installed locally (for example `brew install ansible` on macOS, or
+  `pipx install ansible` / your distro's package on Linux).
 - Collection dependencies: `make deps` (runs `ansible-galaxy collection install`).
 
 Confirm connectivity before applying anything:
 
-    make ping        # ansible kronos -m ping
+    make ping        # ansible <host> -m ping
 
 ## Remote host
 
-Connect with `ssh kronos`. The name resolves to its Tailscale MagicDNS name via
-`~/.ssh/config`. Host runs Ubuntu 26.04 LTS.
+Connect with `ssh <host>`, where `<host>` is an alias in your `~/.ssh/config`.
+The lab resolves it to a Tailscale MagicDNS name. Host runs Ubuntu 26.04 LTS.
 
-- **Do all work as `kb`** (uid/gid 1001). `ssh kronos` logs in as `kb`.
+- **Do all work as `kb`** (uid/gid 1001). `ssh <host>` logs in as `kb`.
 - Use `sudo -n` for privileged steps. Both `kb` and `sysop` have passwordless
   sudo (`/etc/sudoers.d/90-nopasswd`).
 - `sysop` (uid 1000) is the break-glass admin account only. Root SSH is disabled.
-- kb's login shell is **fish** (via the `fish_shell` role). `ssh kronos '<cmd>'`
+- kb's login shell is **fish** (via the `fish_shell` role). `ssh <host> '<cmd>'`
   is interpreted by fish. POSIX-isms fail — `x=y` assignments, `$(...)` in double
   quotes, or a stray `$` (for example in a sed/awk script). For POSIX syntax run
-  `ssh kronos bash -c '...'`.
+  `ssh <host> bash -c '...'`.
 
 ## Storage layout (ZFS)
 
-Pool is `upool`. Key datasets:
+Pool is `upool`. Acumatica-related datasets:
 
-- `upool/kb` → `/home/kb` — kb's home.
-- `upool/documents` → `/home/kb/Documents` — separate dataset nested in the home.
-- `upool/kb-old-20260704` — old pre-2026-07 home, archived read-only. Kept
-  unmounted. Browse with `sudo zfs mount upool/kb-old-20260704`.
 - `upool/vms` — VM disks, one zvol per VM (`upool/vms/<name>`).
-- `upool/distr` → `/upool/distr` — ISO images and installers. SMB share
-  `\\kronos\distr`.
-- `upool/docker` — Docker storage.
-
-Snapshots named `ret1y-vol-*` come from an existing retention tool — do not touch.
+- `upool/distr` → `/upool/distr` — ISO images and installers (Acumatica MSI, SQL
+  Server ISO). SMB share `\\<host>\distr`.
+- `upool/backups/mssql` → `/upool/backups/mssql` — SQL Server backups. SMB share
+  `\\<host>\mssql-backups`.
 
 ## Everyday commands
 
 All targets wrap `ansible-playbook site.yml`. Run from the repo root.
 
-- `make site` — apply the full stack: kronos host, then clone and provision every
-  `acu` instance.
-- `make ping` — Ansible connectivity test against kronos.
+- `make site` — apply the full stack: the Ubuntu Linux host, then clone and
+  provision every `acu` instance.
+- `make ping` — Ansible connectivity test against the Ubuntu Linux host.
 - `make lint` — `ansible-lint` over the ansible tree.
 - `make deps` — install collection dependencies.
 - `make help` — list all targets.
@@ -101,8 +101,8 @@ access are documented in [docs/windows-vms.md](docs/windows-vms.md).
 
 ## Role reference
 
-`site.yml` runs three plays: the kronos host stack, guest VM cloning, then the
-Windows guests. Roles in order:
+`site.yml` runs three plays: the Ubuntu Linux host stack, guest VM cloning, then
+the Windows guests. Roles in order:
 
 - **kvm** — hypervisor plus `win-vm-create`, `win-vm-rm`, and `qga-exec` helper
   scripts. Golden-image build, teardown, guest-agent rescue.
@@ -115,7 +115,7 @@ Windows guests. Roles in order:
   `make vm LIMIT=<vm>`.
 - **mssql** — per-instance Windows layer: a data-disk zvol plus unattended SQL
   Server. Runs against inventory group `acu` over SSH to Administrator
-  (`ansible_shell_type: powershell`); host-side steps delegate to kronos.
+  (`ansible_shell_type: powershell`); host-side steps delegate to the host.
   `make mssql LIMIT=<vm>`.
 - **acumatica** — Acumatica ERP: installer MSI from the distr share into the
   guest, then IIS plus `ac.exe` instance deployment. Produces AcumaticaDB and a
