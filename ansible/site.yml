@@ -1,7 +1,8 @@
 ---
 # Deployment stack for the Acumatica dev/tst/prd lab + the MailPilot guest:
 #   kvm        hypervisor + VM lifecycle scripts (win-vm-*, qga-exec)
-#   storage    ZFS datasets + backup snapshot schedule
+#   storage    ZFS datasets
+#   sanoid     snapshot schedules (daily recursive VM zvols + mssql backups)
 #   network    libvirt NAT net, static DHCP leases, tailscale subnet router,
 #              split-DNS dnsmasq (VM names for the tailnet)
 #   fileserver SMB shares over /upool (distr, mssql-backups)
@@ -23,6 +24,7 @@
   roles:
     - { role: kvm, tags: kvm }
     - { role: storage, tags: storage }
+    - { role: sanoid, tags: sanoid }
     - { role: network, tags: network }
     - { role: fileserver, tags: fileserver }
     - { role: fish_shell, tags: fish }

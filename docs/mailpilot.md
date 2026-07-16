@@ -70,13 +70,13 @@ home (created with defaults on first run). Set app credentials on the guest:
 
 ## Backups
 
-No in-guest snapshot layer: the guest data disk is ext4, and the nightly
-`zfs snapshot -r upool/vms` on kronos (storage role, see
+No in-guest snapshot layer: the guest data disk is ext4, and sanoid's nightly
+recursive snapshot of `upool/vms` on kronos (sanoid role, see
 [backup-strategy.md](backup-strategy.md)) captures the OS and data zvols
 crash-consistently. Roll back on kronos, whole-disk, with the VM shut off:
 
     sudo virsh shutdown mailpilot-1
-    sudo zfs rollback upool/vms/mailpilot-1-data@auto-...   # and/or the OS zvol
+    sudo zfs rollback upool/vms/mailpilot-1-data@autosnap_...   # and/or the OS zvol
     sudo virsh start mailpilot-1
 
 PostgreSQL crash-recovers from the WAL on boot. For an application-consistent

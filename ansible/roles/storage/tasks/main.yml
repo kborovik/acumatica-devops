@@ -32,31 +32,15 @@
       mountpoint: "{{ mssql_backup_mount }}"
       compression: zstd
 
-- name: Install snapshot script
-  ansible.builtin.copy:
-    src: zfs-snap
-    dest: /usr/local/sbin/zfs-snap
-    mode: "0755"
-
-- name: Remove the pre-rename snapshot script
+# Snapshot scheduling lives in the sanoid role — remove the retired zfs-snap
+# cron scheme. Its auto-* snapshots stay (sanoid prunes only its own
+# autosnap_*); destroy them manually once sanoid has built up its history.
+- name: Remove the retired zfs-snap script and cron entries (sanoid replaces them)
   ansible.builtin.file:
-    path: /usr/local/sbin/zfs-snap-backups
+    path: "{{ item }}"
     state: absent
-
-- name: Daily snapshot of MSSQL backup dataset
-  ansible.builtin.copy:
-    dest: /etc/cron.d/zfs-snap-mssql-backups
-    mode: "0644"
-    content: |
-      15 3 * * * root /usr/local/sbin/zfs-snap {{ mssql_backup_dataset }} {{ backup_snap_keep }}
-
-# One atomic recursive snapshot of the VM-zvol parent covers every VM's OS and
-# data (and backup) zvol at the same txg, and auto-includes new VMs. This is a
-# crash-consistent whole-VM rollback net (bad Windows Update, botched Acumatica
-# upgrade); the SQL Agent .bak job remains the application-consistent DB backup.
-- name: Daily recursive snapshot of VM zvols
-  ansible.builtin.copy:
-    dest: /etc/cron.d/zfs-snap-vms
-    mode: "0644"
-    content: |
-      30 3 * * * root /usr/local/sbin/zfs-snap -r {{ vm_zvol_parent }} {{ vm_snap_keep }}
+  loop:
+    - /usr/local/sbin/zfs-snap
+    - /usr/local/sbin/zfs-snap-backups
+    - /etc/cron.d/zfs-snap-mssql-backups
+    - /etc/cron.d/zfs-snap-vms

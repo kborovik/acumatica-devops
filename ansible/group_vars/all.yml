@@ -4,8 +4,8 @@ distr_dataset: upool/distr
 distr_mount: /upool/distr
 mssql_backup_dataset: upool/backups/mssql
 mssql_backup_mount: /upool/backups/mssql
-backup_snap_keep: 14 # daily ZFS snapshots of the backup share
-vm_snap_keep: 14 # daily recursive ZFS snapshots of vm_zvol_parent (OS + data zvols)
+backup_snap_keep: 14 # daily sanoid snapshots of the backup share
+vm_snap_keep: 14 # daily recursive sanoid snapshots of vm_zvol_parent (OS + data zvols)
 
 # --- network: libvirt NAT subnet, advertised to the tailnet -------------------
 vm_subnet: 192.168.122.0/24

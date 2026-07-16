@@ -1,9 +1,9 @@
 # Acumatica backup strategy
 
 Two independent layers protect each Acumatica instance. Both are provisioned by
-Ansible (the `mssql` and `storage` roles) and run unattended — nothing here is a
-manual routine. `<host>` is the Ubuntu Linux host (substitute your `~/.ssh/config`
-alias); all zvols live in pool `upool`.
+Ansible (the `mssql`, `storage`, and `sanoid` roles) and run unattended —
+nothing here is a manual routine. `<host>` is the Ubuntu Linux host (substitute
+your `~/.ssh/config` alias); all zvols live in pool `upool`.
 
 | Layer | Scope | Consistency | Where it lives | Restores |
 |-------|-------|-------------|----------------|----------|
@@ -19,11 +19,14 @@ via the log — so it is a rollback net, **not** the database backup of record.
 ## Nightly timeline
 
     02:00  SQL Agent job "Backup user databases" (in-guest, per instance)
-    03:15  zfs-snap of the mssql-backups share dataset      (backup_snap_keep = 14)
-    03:30  zfs-snap -r of upool/vms — every VM's zvols       (vm_snap_keep = 14)
+    03:15  sanoid daily of the mssql-backups share dataset  (backup_snap_keep = 14)
+    03:30  sanoid daily -r of upool/vms — every VM's zvols   (vm_snap_keep = 14)
 
-The 02:00 job finishes well before the 03:15 share snapshot, so that snapshot
-always captures a complete set of `.bak` files.
+Snapshots are taken by [sanoid](https://github.com/jimsalterjrs/sanoid): the
+packaged `sanoid.timer` fires every 15 minutes and applies the policy in
+`/etc/sanoid/sanoid.conf` (`daily_hour`/`daily_min` pin the dailies to the
+times above). The 02:00 job finishes well before the 03:15 share snapshot, so
+that snapshot always captures a complete set of `.bak` files.
 
 ## Layer 1 — SQL-native backups
 
@@ -48,9 +51,9 @@ no way to pass a credential). The credential is rendered into `backup-copy.cmd`
 on the guest, never committed.
 
 **Retention.** The local `E:` disk keeps only the latest dump per database
-(`WITH INIT`). History lives on the share, snapshotted daily by
-`/usr/local/sbin/zfs-snap` (03:15, `backup_snap_keep` = 14 kept) — so a prior
-day's `.bak` is recoverable from `.zfs/snapshot/auto-*/` under the share mount.
+(`WITH INIT`). History lives on the share, snapshotted daily by sanoid (03:15,
+`backup_snap_keep` = 14 kept) — so a prior day's `.bak` is recoverable from
+`.zfs/snapshot/autosnap_*/` under the share mount.
 
 **Run on demand** (e.g. before a risky change), from the guest:
 
@@ -63,11 +66,12 @@ day's `.bak` is recoverable from `.zfs/snapshot/auto-*/` under the share mount.
       WITH REPLACE;
 
 Recover an older copy by pointing `FROM DISK` at the share's
-`.zfs/snapshot/auto-YYYYMMDD-HHMM/<name>/<db>.bak`.
+`.zfs/snapshot/autosnap_*/<name>/<db>.bak`.
 
 ## Layer 2 — ZFS zvol snapshots
 
-Provisioned by the `storage` role. Each VM's disks are separate sibling zvols:
+Provisioned by the `storage` (datasets) and `sanoid` (schedule) roles. Each
+VM's disks are separate sibling zvols:
 
 - `upool/vms/<name>` — OS disk (`C:`, a `zfs clone` of the golden image)
 - `upool/vms/<name>-data` — SQL data disk (`D:`)
@@ -80,15 +84,12 @@ The MailPilot guest zvols (`upool/vms/mailpilot-*` and `-data`) sit under the
 same parent and are captured by the same recursive snapshot — for them it is
 the only backup layer (see [mailpilot.md](mailpilot.md)).
 
-A single daily cron entry takes **one atomic recursive snapshot** of the whole
-parent:
-
-    30 3 * * * root /usr/local/sbin/zfs-snap -r upool/vms 14
-
-`zfs snapshot -r upool/vms@auto-…` captures every descendant zvol at the same
-transaction group (so a VM's OS and data disks are mutually consistent), and
-auto-includes any newly cloned VM. `zfs-snap` then prunes to the newest
-`vm_snap_keep` (14) `auto-*` timestamps, recursively.
+Sanoid takes **one atomic recursive snapshot** of the whole parent daily at
+03:30 (`recursive = zfs` in `sanoid.conf`): `zfs snapshot -r
+upool/vms@autosnap_…` captures every descendant zvol at the same transaction
+group (so a VM's OS and data disks are mutually consistent), and auto-includes
+any newly created VM. Sanoid's autoprune keeps the newest `vm_snap_keep` (14)
+dailies, recursively.
 
 **Snapshot manually before a risky change**, and roll back:
 
@@ -97,8 +98,8 @@ auto-includes any newly cloned VM. `zfs-snap` then prunes to the newest
     sudo virsh shutdown acu-dev1
     sudo zfs rollback upool/vms/acu-dev1@before-upgrade
 
-Named manual snapshots are not `auto-*`, so the nightly prune never touches
-them.
+Sanoid prunes only its own `autosnap_*` snapshots, so named manual snapshots
+are never touched.
 
 ## What this does not cover
 
@@ -107,11 +108,10 @@ host.** Both layers survive a guest-level mistake (dropped DB, bad upgrade) and
 a single-disk failure (ZFS redundancy, if the pool is a mirror/raidz), but a
 total pool or host loss takes all of it. There is no off-host or off-site copy.
 
-If that changes, `zfs-snap`'s `auto-*` snapshots are ready to feed `syncoid`
-(replicate `upool/vms` and `upool/backups/mssql` to a second box) — that is the
-point where a third-party manager like sanoid/syncoid would earn its keep. See
-the [storage role](../ansible/roles/storage/) and README for why we don't run
-one today.
+If that changes, sanoid's `autosnap_*` snapshots are ready to feed `syncoid`
+(sanoid's replication companion — replicate `upool/vms` and
+`upool/backups/mssql` to a second box); only the syncoid schedule would need
+adding to the [sanoid role](../ansible/roles/sanoid/).
 
 ## Configuration knobs
 
@@ -122,5 +122,5 @@ one today.
 | `backup_snap_keep` | `14` | `group_vars/all.yml` | Daily snapshots kept of the backup share |
 | `vm_snap_keep` | `14` | `group_vars/all.yml` | Daily recursive snapshots kept of `upool/vms` |
 
-Snapshot schedules (03:15 / 03:30) are `cron.d` entries in
-`roles/storage/tasks/main.yml`.
+Snapshot times (03:15 / 03:30) are `daily_hour`/`daily_min` in
+`roles/sanoid/templates/sanoid.conf.j2`.

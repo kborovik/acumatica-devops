@@ -55,8 +55,8 @@ Pool is `upool`. Datasets:
 
 - `upool/vms` — VM disks, one zvol per VM disk (`upool/vms/<name>`, plus
   `-data` and `-backup` zvols) for both the Windows and MailPilot guests.
-  Snapshotted daily by one atomic `zfs snapshot -r` (`vm_snap_keep` kept) as a
-  crash-consistent whole-VM rollback net.
+  Snapshotted daily by sanoid (one atomic recursive snapshot, `vm_snap_keep`
+  kept) as a crash-consistent whole-VM rollback net.
 - `upool/distr` → `/upool/distr` — ISO images and installers (Acumatica MSI, SQL
   Server ISO). SMB share `\\<host>\distr`.
 - `upool/backups/mssql` → `/upool/backups/mssql` — SQL Server backups. SMB share
@@ -84,8 +84,9 @@ All targets wrap `ansible-playbook site.yml`. Run from the repo root.
     make mailpilot                  # deploy/upgrade mailpilot-crm
 
 Single-role targets for the host stack: `make kvm`, `make storage`,
-`make network`, `make fileserver`, `make fish`. MailPilot guest specifics —
-secrets, app config, backups — are in [docs/mailpilot.md](docs/mailpilot.md).
+`make sanoid`, `make network`, `make fileserver`, `make fish`. MailPilot guest
+specifics — secrets, app config, backups — are in
+[docs/mailpilot.md](docs/mailpilot.md).
 
 ## Add an Acumatica instance
 
@@ -120,8 +121,9 @@ MailPilot guests. Roles in order:
 
 - **kvm** — hypervisor plus `win-vm-create`, `win-vm-rm`, and `qga-exec` helper
   scripts. Golden-image build, teardown, guest-agent rescue.
-- **storage** — ZFS datasets plus the snapshot schedules (daily recursive
-  snapshot of the VM zvols and daily snapshot of the MSSQL backup dataset).
+- **storage** — ZFS datasets.
+- **sanoid** — snapshot schedules: daily atomic recursive snapshot of the VM
+  zvols and daily snapshot of the MSSQL backup dataset (`sanoid.timer`).
 - **network** — libvirt NAT, static DHCP leases, Tailscale subnet router,
   split-DNS dnsmasq. VMs resolve as `<vm>.vm.internal` on the tailnet.
 - **fileserver** — SMB shares over `/upool`: `distr`, `mssql-backups`.

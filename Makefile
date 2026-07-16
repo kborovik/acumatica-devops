@@ -12,7 +12,7 @@ LIMIT_ARG = $(if $(LIMIT),-l $(LIMIT),)
 pass_namespace := mailpilot-devops
 
 .PHONY: help site check lint deps ping \
-        kvm storage network fileserver fish vm mssql acumatica \
+        kvm storage sanoid network fileserver fish vm mssql acumatica \
         config mailpilot status \
         tools postgresql nodejs github_cli google_cli tailscale \
         claude_code firecrawl_cli googleworkspace_cli \
@@ -48,7 +48,8 @@ help:
 	echo "  ping       ansible connectivity test (LIMIT=mailpilot for the guests)"
 	echo "  ==> kronos host roles <=="
 	echo "  kvm        role: hypervisor + VM lifecycle scripts"
-	echo "  storage    role: ZFS datasets + backup snapshot schedule"
+	echo "  storage    role: ZFS datasets"
+	echo "  sanoid     role: snapshot schedules (VM zvols + mssql backups)"
 	echo "  network    role: libvirt NAT / DHCP leases / tailscale router"
 	echo "  fileserver role: SMB shares over /upool (distr, mssql-backups)"
 	echo "  fish       role: fish shell config for kb"
@@ -80,7 +81,7 @@ deps:
 	cd ansible
 	ansible-galaxy collection install -r requirements.yml
 
-kvm storage network fileserver fish:
+kvm storage sanoid network fileserver fish:
 	cd ansible
 	$(PLAYBOOK) --tags $@
 
