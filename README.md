@@ -76,16 +76,16 @@ All targets wrap `ansible-playbook site.yml`. Run from the repo root.
 
 `LIMIT=<vm>` scopes a target to one instance. For example:
 
-    make vm LIMIT=acu-dev1          # clone + DHCP/DNS + rename one VM
-    make mssql LIMIT=acu-dev1       # data disk + SQL Server for one VM
-    make acumatica LIMIT=acu-dev1   # Acumatica MSI + IIS/ac.exe for one VM
-    make vm LIMIT=mailpilot-1       # create the MailPilot Ubuntu guest
-    make config LIMIT=mailpilot-1   # configure it (tools, Postgres, CLIs)
-    make mailpilot                  # deploy/upgrade mailpilot-crm
+    make acumatica-vm LIMIT=acu-dev1        # clone + DHCP/DNS + rename one VM
+    make acumatica-config LIMIT=acu-dev1    # data disk + SQL Server for one VM
+    make acumatica-release LIMIT=acu-dev1   # Acumatica MSI + IIS/ac.exe for one VM
+    make mailpilot-vm LIMIT=mailpilot-1     # create the MailPilot Ubuntu guest
+    make mailpilot-config LIMIT=mailpilot-1 # configure it (tools, Postgres, CLIs)
+    make mailpilot-release                  # deploy/upgrade mailpilot-crm
 
-Single-role targets for the host stack: `make kvm`, `make storage`,
-`make sanoid`, `make network`, `make fileserver`, `make fish`. MailPilot guest
-specifics — secrets, app config, backups — are in
+Single-role targets for the host stack: `make host-kvm`, `make host-storage`
+(ZFS datasets + sanoid), `make host-network`, `make host-smb`, `make host-base`.
+MailPilot guest specifics — secrets, app config, backups — are in
 [docs/mailpilot.md](docs/mailpilot.md).
 
 ## Add an Acumatica instance
@@ -101,8 +101,8 @@ Instances are inventory-driven. Adding a host is all it takes.
 
 2. Apply the stack:
 
-       make site                # clone -> rename -> mssql -> acumatica
-       make vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
+       make site                          # clone -> rename -> mssql -> acumatica
+       make acumatica-vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
 
 The MAC is derived from `vm_ip`'s last octet, so the static DHCP lease and the
 `<name>.vm.internal` DNS record exist before the VM first boots. The site lands
@@ -129,14 +129,14 @@ MailPilot guests. Roles in order:
 - **fileserver** — SMB shares over `/upool`: `distr`, `mssql-backups`.
 - **vm_clone** — inventory-driven guest provisioning. An `acu` host with `vm_ip`
   gets a derived MAC, a ZFS clone of `ws2025-base`, and a first-boot rename.
-  `make vm LIMIT=<vm>`.
+  `make acumatica-vm LIMIT=<vm>`.
 - **mssql** — per-instance Windows layer: a data-disk zvol plus unattended SQL
   Server. Runs against inventory group `acu` over SSH to Administrator
   (`ansible_shell_type: powershell`); host-side steps delegate to the host.
-  `make mssql LIMIT=<vm>`.
+  `make acumatica-config LIMIT=<vm>`.
 - **acumatica** — Acumatica ERP: installer MSI from the distr share into the
   guest, then IIS plus `ac.exe` instance deployment. Produces AcumaticaDB and a
-  site at `http://<vm>/AcumaticaERP`. `make acumatica LIMIT=<vm>`.
+  site at `http://<vm>/AcumaticaERP`. `make acumatica-release LIMIT=<vm>`.
 - **fish_shell** — fish config for kb.
 - **linux_vm** — inventory-driven Ubuntu guest provisioning (group `mailpilot`):
   OS zvol written from the cloud image, a data zvol, a cloud-init NoCloud seed
@@ -147,4 +147,4 @@ MailPilot guests. Roles in order:
 - **tools / github_cli / google_cli / gpg / tailscale / nodejs / claude_code /
   firecrawl_cli / googleworkspace_cli** — MailPilot guest OS + operator tooling.
 - **mailpilot** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
-  user, database bootstrap, `mailpilot.service`. `make mailpilot`.
+  user, database bootstrap, `mailpilot.service`. `make mailpilot-release`.

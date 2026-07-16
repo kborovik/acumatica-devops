@@ -4,21 +4,24 @@
 SHELL := bash
 .SHELLFLAGS := -ec
 
+export TERM := xterm-256color
+
 PLAYBOOK = ansible-playbook site.yml
 LIMIT_ARG = $(if $(LIMIT),-l $(LIMIT),)
 
+comma := ,
+
 # pass(1) namespace for mailpilot deploy-time secrets (all optional; empty is
-# tolerated). Override per-invocation: make config pass_namespace=<ns>
+# tolerated). Override per-invocation: make mailpilot-config pass_namespace=<ns>
 pass_namespace := mailpilot-devops
 
-.PHONY: help site check lint deps ping \
-        kvm storage sanoid network fileserver fish vm mssql acumatica \
-        config mailpilot status \
+.PHONY: default help site lint deps ping \
+        host-base host-kvm host-storage host-network host-smb \
+        acumatica-vm acumatica-config acumatica-release acumatica-status \
+        mailpilot-vm mailpilot-config mailpilot-release mailpilot-stats \
         tools postgresql nodejs github_cli google_cli tailscale \
         claude_code firecrawl_cli googleworkspace_cli \
         release major minor patch
-
-comma := ,
 
 # Best-effort secrets from pass(1). Missing keys resolve to empty strings; the
 # roles that consume them (tailscale, postgresql remote/reporter, claude_code,
@@ -40,87 +43,144 @@ if [ -z "$$v" ]; then v=$$(curl -fsSL https://pypi.org/pypi/mailpilot-crm/json |
 if [ -z "$$v" ] || [ "$$v" = "null" ]; then echo "could not resolve mailpilot version (pass version=X.Y.Z)"; exit 1; fi
 endef
 
-help:
-	echo "targets:"
-	echo "  ==> Deployment targets <=="
-	echo "  site       apply full stack (kronos + acu instances + mailpilot guests)"
-	echo "  lint       ansible-lint over the ansible tree"
-	echo "  ping       ansible connectivity test (LIMIT=mailpilot for the guests)"
-	echo "  ==> kronos host roles <=="
-	echo "  kvm        role: hypervisor + VM lifecycle scripts"
-	echo "  storage    role: ZFS datasets"
-	echo "  sanoid     role: snapshot schedules (VM zvols + mssql backups)"
-	echo "  network    role: libvirt NAT / DHCP leases / tailscale router"
-	echo "  fileserver role: SMB shares over /upool (distr, mssql-backups)"
-	echo "  fish       role: fish shell config for kb"
-	echo "  ==> Acumatica instances (group acu) <=="
-	echo "  vm         clone/create VMs per inventory — acu and mailpilot (LIMIT=<vm> for one)"
-	echo "  mssql      role: per-instance data disk + SQL Server (LIMIT=acu-dev1 for one)"
-	echo "  acumatica  role: Acumatica ERP MSI + IIS/ac.exe instance (LIMIT=acu-dev1 for one)"
-	echo "  ==> MailPilot guests (group mailpilot) <=="
-	echo "  config     configure the guest (OS, data disk, Postgres, operator tooling)"
-	echo "  mailpilot  install/upgrade mailpilot-crm + (re)start the service [version=X.Y.Z]"
-	echo "  status     systemctl is-active + mailpilot --version + recent journal"
-	echo "  <role>     run a single guest role: tools postgresql nodejs github_cli"
-	echo "             google_cli tailscale claude_code firecrawl_cli googleworkspace_cli"
-	echo "  ==> Release <=="
-	echo "  release    tag + publish a GitHub release (make release major|minor|patch)"
+# $(call tags,<tag>[,<tag>...]) — run the kronos host plays for one or more role
+# tags. Pass several with $(comma): $(call tags,storage$(comma)sanoid)
+define tags
+cd ansible
+$(PLAYBOOK) --tags $(1)
+endef
 
-site:
+###############################################################################
+# Colors and headers
+###############################################################################
+
+blue := $$(tput setaf 4)
+green := $$(tput setaf 2)
+yellow := $$(tput setaf 3)
+reset := $$(tput sgr0)
+
+define header
+echo "$(blue)==> $(1) <==$(reset)"
+endef
+
+default: help
+
+help:
+	echo "$(blue)Usage: $(green)make [recipe] [LIMIT=<host>]$(reset)"
+	echo "$(blue)Recipes:$(reset)"
+	awk 'BEGIN {FS = ":.*?## "; sort_cmd = "sort"} /^[a-zA-Z0-9_-]+:.*?## / \
+	{ printf "  \033[33m%-20s\033[0m %s\n", $$1, $$2 | sort_cmd; } \
+	END {close(sort_cmd)}' $(MAKEFILE_LIST)
+
+###############################################################################
+# Deployment
+###############################################################################
+
+site: ## apply the full stack (kronos host + acu instances + mailpilot guests)
 	cd ansible
 	$(resolve_version)
 	$(load_secrets)
-	echo "==> Full stack (mailpilot-crm==$$v) <=="
+	$(call header,Full stack: mailpilot-crm==$$v)
 	$(PLAYBOOK) $(LIMIT_ARG) --extra-vars "$$extra_vars mailpilot_version=$$v"
 
-lint: deps
+lint: deps ## ansible-lint over the ansible tree
 	cd ansible
 	ansible-lint
+
+ping: ## ansible connectivity test (LIMIT=mailpilot for the guests)
+	cd ansible
+	ansible $(if $(LIMIT),$(LIMIT),kronos) -m ping
 
 deps:
 	cd ansible
 	ansible-galaxy collection install -r requirements.yml
 
-kvm storage sanoid network fileserver fish:
-	cd ansible
-	$(PLAYBOOK) --tags $@
+###############################################################################
+# kronos host roles
+###############################################################################
 
-# network tag runs too so the clone's DHCP lease / DNS record exist before
-# first boot; kronos must stay in the limit or that play would be skipped
-vm:
-	cd ansible
-	$(PLAYBOOK) --tags network$(comma)vm $(if $(LIMIT),-l kronos$(comma)$(LIMIT),)
+host-base: ## kronos base config — fish shell for kb (+ future host tweaks)
+	$(call tags,fish)
 
-mssql acumatica:
-	cd ansible
-	$(PLAYBOOK) --tags $@ $(if $(LIMIT),-l $(LIMIT),)
+host-kvm: ## hypervisor + VM lifecycle scripts (win-vm-*, qga-exec)
+	$(call tags,kvm)
 
-# guest config only: limit to the mailpilot group so the kronos/acu plays are
-# out of scope, then skip the create-VM and app-deploy tags
-config:
+host-storage: ## ZFS datasets + sanoid snapshot schedules (VM zvols + mssql backups)
+	$(call tags,storage$(comma)sanoid)
+
+host-network: ## libvirt NAT / DHCP leases / split-DNS + tailscale subnet router
+	$(call tags,network)
+
+host-smb: ## SMB shares over /upool (distr, mssql-backups)
+	$(call tags,fileserver)
+
+###############################################################################
+# Acumatica instances (group acu)
+###############################################################################
+
+# network tag runs too so the clone's DHCP lease / DNS record exist before first
+# boot; kronos stays in the limit or the network play is skipped.
+acumatica-vm: ## clone/create the Acumatica Windows VMs (LIMIT=acu-dev1 for one)
+	cd ansible
+	$(PLAYBOOK) --tags network$(comma)vm -l kronos$(comma)$(if $(LIMIT),$(LIMIT),acu)
+
+# everything on the acu VMs except the VM clone and the Acumatica app itself:
+# data disk + SQL Server today, plus any future supporting roles.
+acumatica-config: ## SQL Server + supporting software on the acu VMs (LIMIT=acu-dev1 for one)
+	cd ansible
+	$(PLAYBOOK) -l $(if $(LIMIT),$(LIMIT),acu) --skip-tags vm$(comma)acumatica
+
+acumatica-release: ## install the Acumatica ERP MSI + IIS/ac.exe instance (LIMIT=acu-dev1 for one)
+	cd ansible
+	$(PLAYBOOK) --tags acumatica $(LIMIT_ARG)
+
+acumatica-status: ## acu VM reachability — SSH (22) + IIS (80) port checks
+	cd ansible
+	for h in $$(ansible acu $(LIMIT_ARG) --list-hosts 2>/dev/null | tail -n +2); do
+	  ip=$$(ansible-inventory --host $$h 2>/dev/null | jq -r '.vm_ip')
+	  for p in 22 80; do
+	    nc -z -w2 $$ip $$p 2>/dev/null && echo "$$h ($$ip:$$p) open" || echo "$$h ($$ip:$$p) closed"
+	  done
+	done
+
+###############################################################################
+# MailPilot guests (group mailpilot)
+###############################################################################
+
+# network tag runs too so the guest's DHCP lease / DNS record exist before first
+# boot; kronos stays in the limit or the network play is skipped.
+mailpilot-vm: ## create the MailPilot Ubuntu guests (LIMIT=mailpilot-1 for one)
+	cd ansible
+	$(PLAYBOOK) --tags network$(comma)vm -l kronos$(comma)$(if $(LIMIT),$(LIMIT),mailpilot)
+
+# guest config only: limit to the mailpilot group so the kronos/acu plays are out
+# of scope, then skip the create-VM and app-deploy tags.
+mailpilot-config: ## configure the MailPilot guests — OS, data disk, Postgres, operator tooling
 	cd ansible
 	$(load_secrets)
 	$(PLAYBOOK) -l $(if $(LIMIT),$(LIMIT),mailpilot) --skip-tags vm$(comma)mailpilot --extra-vars "$$extra_vars"
 
-mailpilot:
+mailpilot-release: ## install/upgrade mailpilot-crm + (re)start the service [version=X.Y.Z]
 	cd ansible
 	$(resolve_version)
-	echo "==> Deploy mailpilot-crm==$$v <=="
+	$(call header,Deploy mailpilot-crm==$$v)
 	$(PLAYBOOK) --tags mailpilot $(LIMIT_ARG) --extra-vars "mailpilot_version=$$v"
 
-status:
+mailpilot-stats: ## MailPilot service status + SSH (22) reachability
 	cd ansible
+	for h in $$(ansible mailpilot $(LIMIT_ARG) --list-hosts 2>/dev/null | tail -n +2); do
+	  ip=$$(ansible-inventory --host $$h 2>/dev/null | jq -r '.vm_ip')
+	  nc -z -w2 $$ip 22 2>/dev/null && echo "$$h ($$ip:22) open" || echo "$$h ($$ip:22) closed"
+	done
 	ansible mailpilot $(LIMIT_ARG) -m shell -a "systemctl is-active mailpilot.service; echo '---'; mailpilot --version; echo '---'; journalctl -u mailpilot --no-pager -n 5"
 
-# Single-role convenience targets for the mailpilot guests (secrets threaded).
+# Single-role convenience targets for the mailpilot guests (secrets threaded):
+#   make tools | postgresql | nodejs | github_cli | google_cli | tailscale |
+#        claude_code | firecrawl_cli | googleworkspace_cli   [LIMIT=mailpilot-1]
 tools postgresql nodejs github_cli google_cli tailscale claude_code firecrawl_cli googleworkspace_cli:
 	cd ansible
 	$(load_secrets)
 	$(PLAYBOOK) --tags $@ $(LIMIT_ARG) --extra-vars "$$extra_vars"
-
-ping:
-	cd ansible
-	ansible $(if $(LIMIT),$(LIMIT),kronos) -m ping
 
 ###############################################################################
 # Release
@@ -132,7 +192,7 @@ ping:
 # one is bumped from the latest `v*` tag.
 part := $(word 1,$(filter major minor patch,$(MAKECMDGOALS)))
 
-release:
+release: ## tag + publish a GitHub release (make release major|minor|patch)
 	set -e
 	test -n "$(part)" || { echo "usage: make release major|minor|patch"; exit 1; }
 	git diff --quiet && git diff --cached --quiet \
@@ -146,12 +206,12 @@ release:
 	  patch) pat=$$((pat + 1)) ;;
 	esac
 	version="$$maj.$$min.$$pat"
-	echo "==> Tagging v$$version <=="
+	$(call header,Tagging v$$version)
 	git tag "v$$version"
 	git push && git push --tags
-	echo "==> Publishing v$$version to GitHub <=="
+	$(call header,Publishing v$$version to GitHub)
 	gh release create "v$$version" --title "v$$version" --generate-notes
-	echo "Released v$$version"
+	echo "$(green)Released v$$version$(reset)"
 
 major minor patch:
 	:

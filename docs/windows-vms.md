@@ -50,8 +50,8 @@ Instances are **inventory-driven**: add the VM under the `acu` group in
       hosts:
         acu-tst1: { vm_ip: 192.168.122.12 }
 
-    make site                # everything: clone -> rename -> mssql -> acumatica
-    make vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
+    make site                          # everything: clone -> rename -> mssql -> acumatica
+    make acumatica-vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
 
 The `vm_clone` play (delegating host steps to the Ubuntu Linux host) per instance:
 
@@ -85,7 +85,7 @@ The `mssql` role provisions the data disk and SQL Server (guests are
 ansible-managed over SSH — inventory group `acu`, connection vars in
 `group_vars/acu.yml`). It runs as part of `make site`; for one instance:
 
-    make mssql LIMIT=acu-dev1
+    make acumatica-config LIMIT=acu-dev1
 
 The play is idempotent; per guest it
 
@@ -115,7 +115,7 @@ manually once you are sure the data is disposable.
 The `acumatica` role installs the Acumatica ERP MSI and deploys the
 application instance in one pass:
 
-    make acumatica LIMIT=acu-dev1
+    make acumatica-release LIMIT=acu-dev1
 
 First the installer (`installers/AcumaticaERPInstall-<version>.msi` on the
 distr share — stage new builds there manually and bump `acumatica_version`):

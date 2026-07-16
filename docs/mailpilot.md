@@ -21,12 +21,13 @@ from `vm_admin_ssh_key_file` (`group_vars/mailpilot.yml`).
 
 ## Commands
 
-- `make vm LIMIT=mailpilot-1` — create/boot the guest (linux_vm + network roles).
-- `make config LIMIT=mailpilot-1` — configure the guest: OS tools, operator
+- `make mailpilot-vm LIMIT=mailpilot-1` — create/boot the guest (linux_vm + network roles).
+- `make mailpilot-config LIMIT=mailpilot-1` — configure the guest: OS tools, operator
   CLIs, ext4 data disk + PostgreSQL 18, optional Tailscale.
-- `make mailpilot [version=X.Y.Z]` — install/upgrade `mailpilot-crm` and
+- `make mailpilot-release [version=X.Y.Z]` — install/upgrade `mailpilot-crm` and
   (re)start the service. Without `version`, the latest PyPI release is used.
-- `make status` — `systemctl is-active` + `mailpilot --version` + recent journal.
+- `make mailpilot-stats` — SSH (22) reachability + `systemctl is-active` +
+  `mailpilot --version` + recent journal.
 - `make site LIMIT=mailpilot-1` — all three in one pass.
 - Single guest roles: `make postgresql LIMIT=mailpilot-1`, `make tools ...`, etc.
 
@@ -41,7 +42,7 @@ value (Postgres stays localhost-only, the guest does not join Tailscale,
 operator CLIs are installed but unauthenticated). Supplied via
 [`pass(1)`](https://www.passwordstore.org/) under the namespace set by
 `pass_namespace` in the Makefile (default `mailpilot-devops`; override with
-`make config pass_namespace=<ns>`):
+`make mailpilot-config pass_namespace=<ns>`):
 
 | pass key | consumed by |
 | --- | --- |
