@@ -56,9 +56,9 @@ Instances are **inventory-driven**: add the VM under the `acu` group in
 The `acumatica_vm` play (delegating host steps to the Ubuntu Linux host) per instance:
 
 - derives a stable MAC from `vm_ip`'s last octet (`52:54:00:7a:00:xx`;
-  override with `vm_mac` — acu-dev1 keeps its pre-derivation MAC this way),
-  so the static DHCP lease and the `<name>.vm.internal` DNS record from the
-  `host_network` role are registered **before the VM first boots**;
+  override per host with `vm_mac`), so the static DHCP lease and the
+  `<name>.vm.internal` DNS record from the `host_network` role are registered
+  **before the VM first boots**;
 - if the domain doesn't exist, snapshots and `zfs clone`s the golden zvol into
   `upool/vms/<name>` (instant, no copy), then `virt-clone --preserve-data`
   registers a libvirt domain on it (fresh UUID, the derived MAC) — all native
