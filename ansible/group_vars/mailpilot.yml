@@ -1,0 +1,19 @@
+# Ubuntu guests on kronos, reached over the tailnet-routed VM subnet
+# (192.168.122.0/24) via the SSH key cloud-init injects for the 'ubuntu' user.
+#
+# Each guest's identity comes from the inventory: vm_ip (required, the static
+# address cloud-init assigns). The MAC is derived from vm_ip's last octet so a
+# rebuilt guest keeps a stable hardware address; the derived vm_dhcp_entry
+# gives the guest a <name>.vm.internal DNS record on the tailnet (the guest
+# itself uses the static cloud-init address, not the lease).
+vm_mac: "{{ '52:54:00:7a:00:%02x' | format(vm_ip.split('.') | last | int) }}"
+vm_dhcp_entry: { name: '{{ inventory_hostname }}', mac: '{{ vm_mac }}', ip: '{{ vm_ip }}' }
+
+ansible_host: "{{ vm_ip }}"
+ansible_user: ubuntu
+ansible_become: true
+
+# Public key(s) cloud-init installs for 'ubuntu'. Ansible then connects with the
+# matching private key (default SSH key / agent, or set
+# ansible_ssh_private_key_file). Resolved on the control machine at play time.
+vm_admin_ssh_key_file: '~/.ssh/id_ed25519.pub'

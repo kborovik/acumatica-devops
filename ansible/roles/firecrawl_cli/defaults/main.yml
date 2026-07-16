@@ -1,0 +1,5 @@
+---
+firecrawl_cli_user: ubuntu
+firecrawl_cli_group: ubuntu
+firecrawl_cli_home: /home/ubuntu
+firecrawl_api_key: ''

@@ -1,0 +1,14 @@
+version: 2
+ethernets:
+  primary:
+    match:
+      macaddress: "{{ vm_mac }}"
+    set-name: enp1s0
+    dhcp4: false
+    addresses:
+      - {{ vm_ip }}/{{ vm_subnet_prefix }}
+    routes:
+      - to: default
+        via: {{ vm_subnet_gateway }}
+    nameservers:
+      addresses: [{{ vm_dns_servers | join(', ') }}]

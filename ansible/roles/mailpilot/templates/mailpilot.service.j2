@@ -1,0 +1,18 @@
+[Unit]
+Description=MailPilot agent service
+After=postgresql.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User={{ mailpilot_user }}
+Group={{ mailpilot_group }}
+WorkingDirectory={{ mailpilot_home }}
+ExecStart={{ mailpilot_home }}/.local/bin/mailpilot run
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

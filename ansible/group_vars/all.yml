@@ -9,13 +9,17 @@ vm_snap_keep: 14 # daily recursive ZFS snapshots of vm_zvol_parent (OS + data zv
 
 # --- network: libvirt NAT subnet, advertised to the tailnet -------------------
 vm_subnet: 192.168.122.0/24
-# DHCP/DNS records: the golden image plus one entry per acu inventory host,
-# built from vm_ip/vm_mac (group_vars/acu.yml) — add VMs in inventory/hosts.yml,
-# not here.
+vm_subnet_gateway: 192.168.122.1
+vm_subnet_prefix: 24
+vm_dns_servers: ['192.168.122.1', '1.1.1.1']
+# DHCP/DNS records: the golden image plus one entry per acu/mailpilot inventory
+# host, built from vm_ip/vm_mac (group_vars/acu.yml, group_vars/mailpilot.yml) —
+# add VMs in inventory/hosts.yml, not here.
 vm_golden_image: ws2025-base
 vm_dhcp_hosts: >-
   {{ [{'name': vm_golden_image, 'mac': '52:54:00:4a:86:96', 'ip': '192.168.122.10'}]
-     + (groups['acu'] | default([]) | map('extract', hostvars, 'vm_dhcp_entry') | list) }}
+     + (groups['acu'] | default([]) | map('extract', hostvars, 'vm_dhcp_entry') | list)
+     + (groups['mailpilot'] | default([]) | map('extract', hostvars, 'vm_dhcp_entry') | list) }}
 # tailnet-wide VM names (<name>.{{ vm_dns_domain }}): dnsmasq on kronos's
 # tailscale IP serves vm_dhcp_hosts records; Tailscale split DNS points the
 # domain there (one-time admin-console step, see roles/network/tasks/main.yml)
@@ -27,3 +31,14 @@ smb_distr_user: svc-distr
 smb_backup_user: svc-backup
 iso_dir: '{{ distr_mount }}/iso' # OS / driver ISOs used by win-vm-create
 virtio_win_iso: '{{ iso_dir }}/virtio-win-0.1.285.iso'
+
+# --- mailpilot guests: Ubuntu cloud image (linux_vm role) ----------------------
+# Ubuntu 26.04 LTS "Resolute Raccoon" (matches the kronos host). The codename
+# also keys the third-party apt repos in the postgresql and tailscale roles, so
+# it lives here as one source of truth. Downloaded once to the distr share;
+# qemu-img writes it onto each guest's OS zvol; cloud-init grows the root
+# partition to fill the zvol.
+ubuntu_codename: resolute
+vm_cloud_image_url: "https://cloud-images.ubuntu.com/{{ ubuntu_codename }}/current/{{ ubuntu_codename }}-server-cloudimg-amd64.img"
+vm_cloud_image_path: "{{ iso_dir }}/{{ ubuntu_codename }}-server-cloudimg-amd64.img"
+vm_seed_dir: '{{ distr_mount }}/seed'

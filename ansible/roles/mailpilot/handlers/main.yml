@@ -1,0 +1,6 @@
+---
+- name: Restart mailpilot
+  ansible.builtin.systemd:
+    name: mailpilot.service
+    state: restarted
+    daemon_reload: true

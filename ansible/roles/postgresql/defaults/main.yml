@@ -1,0 +1,10 @@
+---
+# Guest block device that backs the PostgreSQL data filesystem. This is the
+# second virtio disk (the -data zvol attached by linux_vm), so it enumerates
+# as vdb.
+postgresql_data_device: /dev/vdb
+
+postgresql_remote_user: pilot
+postgresql_remote_password: ''
+postgresql_readonly_user: reporter
+postgresql_readonly_password: ''

@@ -1,0 +1,24 @@
+---
+# The guest's second virtio disk (the -data zvol attached by linux_vm)
+# enumerates as vdb. Whole-disk ext4 — no partition table — mounted over
+# /var/lib/postgresql so the standard Debian cluster path sits on the data
+# disk. Host-level zvol snapshots (storage role) are the rollback net.
+
+- name: Filesystem on the data disk
+  community.general.filesystem:
+    fstype: ext4
+    dev: "{{ postgresql_data_device }}"
+
+- name: Mount point for the data disk
+  ansible.builtin.file:
+    path: /var/lib/postgresql
+    state: directory
+    mode: "0755"
+
+- name: Mount the data disk at /var/lib/postgresql (fstab-persisted)
+  ansible.posix.mount:
+    path: /var/lib/postgresql
+    src: "{{ postgresql_data_device }}"
+    fstype: ext4
+    opts: defaults,noatime
+    state: mounted

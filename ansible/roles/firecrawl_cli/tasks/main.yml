@@ -1,0 +1,43 @@
+---
+- name: Ensure npm-global directory exists
+  ansible.builtin.file:
+    path: '{{ firecrawl_cli_home }}/.npm-global'
+    state: directory
+    owner: '{{ firecrawl_cli_user }}'
+    group: '{{ firecrawl_cli_group }}'
+    mode: '0755'
+
+- name: Configure npm global prefix for ubuntu
+  ansible.builtin.command:
+    cmd: npm config set prefix {{ firecrawl_cli_home }}/.npm-global
+  become: true
+  become_user: '{{ firecrawl_cli_user }}'
+  register: npm_prefix
+  changed_when: false
+
+- name: Install firecrawl-cli globally for ubuntu
+  community.general.npm:
+    name: firecrawl-cli
+    global: true
+    state: present
+  become: true
+  become_user: '{{ firecrawl_cli_user }}'
+  environment:
+    npm_config_prefix: '{{ firecrawl_cli_home }}/.npm-global'
+
+- name: Ensure fish conf.d directory exists
+  ansible.builtin.file:
+    path: '{{ firecrawl_cli_home }}/.config/fish/conf.d'
+    state: directory
+    owner: '{{ firecrawl_cli_user }}'
+    group: '{{ firecrawl_cli_group }}'
+    mode: '0755'
+
+- name: Render FIRECRAWL_API_KEY into fish init
+  ansible.builtin.template:
+    src: firecrawl.fish.j2
+    dest: '{{ firecrawl_cli_home }}/.config/fish/conf.d/firecrawl.fish'
+    owner: '{{ firecrawl_cli_user }}'
+    group: '{{ firecrawl_cli_group }}'
+    mode: '0600'
+  no_log: true

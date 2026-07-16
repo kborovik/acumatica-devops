@@ -76,6 +76,10 @@ Provisioned by the `storage` role. Each VM's disks are separate sibling zvols:
 They are kept separate deliberately, so a `zfs rollback` of the OS disk never
 drags the databases back with it.
 
+The MailPilot guest zvols (`upool/vms/mailpilot-*` and `-data`) sit under the
+same parent and are captured by the same recursive snapshot — for them it is
+the only backup layer (see [mailpilot.md](mailpilot.md)).
+
 A single daily cron entry takes **one atomic recursive snapshot** of the whole
 parent:
 

@@ -1,0 +1,27 @@
+#cloud-config
+# NoCloud user-data for {{ inventory_hostname }}. Renders the 'ubuntu' operator
+# user with the control machine's SSH key; the root filesystem is grown to fill
+# the OS zvol on first boot.
+hostname: {{ inventory_hostname }}
+fqdn: {{ inventory_hostname }}
+preserve_hostname: false
+manage_etc_hosts: true
+
+users:
+  - name: ubuntu
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: 'ALL=(ALL) NOPASSWD:ALL'
+    lock_passwd: true
+    ssh_authorized_keys:
+{% set keys = vm_admin_ssh_keys | default([]) %}
+{% set filekey = lookup('file', vm_admin_ssh_key_file | expanduser, errors='ignore') if (vm_admin_ssh_key_file | default('')) else none %}
+{% if filekey %}{% set keys = keys + [filekey] %}{% endif %}
+{% for key in keys %}
+      - {{ key }}
+{% endfor %}
+
+package_update: true
+growpart:
+  mode: auto
+resize_rootfs: true

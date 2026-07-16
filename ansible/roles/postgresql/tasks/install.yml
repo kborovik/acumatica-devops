@@ -1,0 +1,137 @@
+---
+- name: Import PostgreSQL GPG Key
+  ansible.builtin.get_url:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    dest: /etc/apt/keyrings/postgresql.asc
+    mode: '0644'
+
+- name: Add PostgreSQL Apt Repository
+  ansible.builtin.deb822_repository:
+    name: postgresql
+    types: [deb]
+    uris: https://apt.postgresql.org/pub/repos/apt
+    suites: ["{{ ubuntu_codename }}-pgdg"]
+    components: [main]
+    architectures: [amd64]
+    signed_by: /etc/apt/keyrings/postgresql.asc
+    state: present
+
+- name: Install PostgreSQL 18
+  ansible.builtin.apt:
+    package: ['postgresql-18']
+    update_cache: true
+    state: present
+
+- name: Configure PostgreSQL settings
+  ansible.builtin.lineinfile:
+    path: /etc/postgresql/18/main/postgresql.conf
+    regexp: '^#?{{ item.key }}\s*='
+    line: '{{ item.key }} = {{ item.value }}'
+  loop:
+    # Network
+    - { key: listen_addresses, value: "'*'" }
+    # Memory
+    - { key: shared_buffers, value: 512MB }
+    - { key: huge_pages, value: 'off' }
+    - { key: effective_cache_size, value: 1GB }
+    - { key: work_mem, value: 8MB }
+    - { key: maintenance_work_mem, value: 256MB }
+    # WAL
+    - { key: wal_level, value: minimal }
+    - { key: max_wal_senders, value: 0 }
+    - { key: max_wal_size, value: 2GB }
+    - { key: synchronous_commit, value: 'off' }
+    # Planner / I/O
+    - { key: random_page_cost, value: 1.1 }
+    - { key: effective_io_concurrency, value: 200 }
+  notify: Restart PostgreSQL
+
+- name: Configure pg_hba.conf for localhost trust
+  ansible.builtin.copy:
+    dest: /etc/postgresql/18/main/pg_hba.conf
+    owner: postgres
+    group: postgres
+    mode: '0640'
+    content: |
+      # PostgreSQL Client Authentication Configuration
+      # TYPE  DATABASE  USER  ADDRESS        METHOD
+      local   all       all                  trust
+      host    all       all   127.0.0.1/32   trust
+      host    all       all   ::1/128        trust
+      # Tailscale VPN (CGNAT range 100.64.0.0/10)
+      host    all       all   100.64.0.0/10  scram-sha-256
+  notify: Restart PostgreSQL
+
+- name: Start PostgreSQL
+  ansible.builtin.service:
+    name: postgresql
+    state: started
+    enabled: true
+
+- name: Create PostgreSQL remote user
+  become: true
+  become_user: postgres
+  ansible.builtin.command:
+    cmd: >-
+      psql -tAc "DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ postgresql_remote_user }}') THEN
+          CREATE ROLE {{ postgresql_remote_user }} LOGIN PASSWORD '{{ postgresql_remote_password }}';
+        ELSE
+          ALTER ROLE {{ postgresql_remote_user }} PASSWORD '{{ postgresql_remote_password }}';
+        END IF;
+      END $$;"
+  changed_when: true
+  no_log: true
+  when: postgresql_remote_password | length > 0
+
+- name: Create PostgreSQL read-only reporting user
+  become: true
+  become_user: postgres
+  ansible.builtin.command:
+    cmd: >-
+      psql -tAc "DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{{ postgresql_readonly_user }}') THEN
+          CREATE ROLE {{ postgresql_readonly_user }} LOGIN PASSWORD '{{ postgresql_readonly_password }}'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        ELSE
+          ALTER ROLE {{ postgresql_readonly_user }} LOGIN PASSWORD '{{ postgresql_readonly_password }}'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE;
+        END IF;
+      END $$;
+      ALTER ROLE {{ postgresql_readonly_user }} SET default_transaction_read_only = on;"
+  changed_when: true
+  no_log: true
+  when: postgresql_readonly_password | length > 0
+
+- name: List non-template PostgreSQL databases for reporting grants
+  become: true
+  become_user: postgres
+  ansible.builtin.command:
+    cmd: >-
+      psql -tAc "SELECT datname FROM pg_database WHERE NOT datistemplate AND datallowconn"
+  register: postgresql_reporting_dbs
+  changed_when: false
+  when: postgresql_readonly_password | length > 0
+
+- name: Grant read-only reporting privileges per database
+  become: true
+  become_user: postgres
+  ansible.builtin.command:
+    cmd: >-
+      psql -d {{ item }} -tAc "
+      GRANT CONNECT ON DATABASE {{ item }} TO {{ postgresql_readonly_user }};
+      GRANT USAGE ON SCHEMA public TO {{ postgresql_readonly_user }};
+      GRANT SELECT ON ALL TABLES IN SCHEMA public TO {{ postgresql_readonly_user }};
+      GRANT SELECT ON ALL SEQUENCES IN SCHEMA public TO {{ postgresql_readonly_user }};
+      DO $$
+      DECLARE owner_role text;
+      BEGIN
+        SELECT pg_get_userbyid(nspowner) INTO owner_role FROM pg_namespace WHERE nspname = 'public';
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT ON TABLES TO %I', owner_role, '{{ postgresql_readonly_user }}');
+        EXECUTE format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELECT ON SEQUENCES TO %I', owner_role, '{{ postgresql_readonly_user }}');
+      END $$;"
+  loop: '{{ postgresql_reporting_dbs.stdout_lines | default([]) }}'
+  changed_when: true
+  when: postgresql_readonly_password | length > 0

@@ -1,0 +1,95 @@
+---
+- name: Get current timezone
+  ansible.builtin.command: timedatectl show --property=Timezone --value
+  register: current_timezone
+  changed_when: false
+
+- name: Set timezone to America/Toronto
+  ansible.builtin.command: timedatectl set-timezone America/Toronto
+  when: current_timezone.stdout != 'America/Toronto'
+
+- name: Install OS Tools
+  ansible.builtin.apt:
+    # python3-debian backs the deb822_repository module used by the *_cli,
+    # tailscale, postgresql and nodejs roles that run after this one.
+    package: ['acl', 'bat', 'fish', 'git', 'jq', 'make', 'gnupg', 'python3-debian', 'tmux', 'tree']
+    update_cache: true
+    state: present
+
+- name: Copy Fish config
+  ansible.builtin.copy:
+    src: fish/
+    dest: /home/ubuntu/.config/fish/
+    owner: ubuntu
+    group: ubuntu
+    mode: preserve
+
+- name: Copy VIM config
+  ansible.builtin.copy:
+    src: vim/
+    dest: /home/ubuntu/.vim/
+    owner: ubuntu
+    group: ubuntu
+    mode: preserve
+
+- name: Copy tmux config
+  ansible.builtin.copy:
+    src: tmux/tmux.conf
+    dest: /home/ubuntu/.tmux.conf
+    owner: ubuntu
+    group: ubuntu
+    mode: '0644'
+
+- name: Set vm.swappiness to 1
+  ansible.posix.sysctl:
+    name: vm.swappiness
+    value: '1'
+    sysctl_set: true
+    state: present
+    reload: true
+
+- name: Set Fish as default shell
+  ansible.builtin.user:
+    name: ubuntu
+    shell: /usr/bin/fish
+
+- name: Render Anthropic API key for vim-claude
+  ansible.builtin.copy:
+    content: '{{ anthropic_api_key }}'
+    dest: /home/ubuntu/.anthropic-api-key
+    owner: ubuntu
+    group: ubuntu
+    mode: '0600'
+  no_log: true
+
+- name: Install uv
+  ansible.builtin.shell:
+    cmd: set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | sh
+    executable: /bin/bash
+    creates: /home/ubuntu/.local/bin/uv
+  become: true
+  become_user: ubuntu
+
+- name: Install Python {{ uv_python_version }} via uv
+  ansible.builtin.command:
+    cmd: /home/ubuntu/.local/bin/uv python install {{ uv_python_version }}
+  become: true
+  become_user: ubuntu
+  register: uv_python_install
+  changed_when: "'Installed' in uv_python_install.stderr"
+
+- name: Update uv to latest stable
+  ansible.builtin.command:
+    cmd: /home/ubuntu/.local/bin/uv self update
+  become: true
+  become_user: ubuntu
+  register: uv_self_update
+  changed_when: "'Upgraded' in uv_self_update.stdout"
+
+- name: Install logfire CLI as system tool
+  ansible.builtin.command:
+    cmd: /home/ubuntu/.local/bin/uv tool install logfire
+  become: true
+  become_user: ubuntu
+  register: logfire_cli_install
+  changed_when: "'Installed' in logfire_cli_install.stderr"

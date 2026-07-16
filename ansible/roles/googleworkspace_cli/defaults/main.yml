@@ -1,0 +1,4 @@
+---
+googleworkspace_cli_user: ubuntu
+googleworkspace_cli_group: ubuntu
+googleworkspace_cli_home: /home/ubuntu

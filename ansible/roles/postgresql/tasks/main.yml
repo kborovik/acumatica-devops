@@ -1,0 +1,9 @@
+---
+# Data disk first: with ext4 already mounted at /var/lib/postgresql, the
+# default cluster the postgresql-18 package creates lands on the data disk —
+# no cluster relocation needed.
+- name: Data disk in the guest (ext4 on vdb)
+  ansible.builtin.import_tasks: data_disk.yml
+
+- name: PostgreSQL 18 in the guest
+  ansible.builtin.import_tasks: install.yml

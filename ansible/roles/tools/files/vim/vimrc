@@ -1,0 +1,121 @@
+" General Settings
+set nocompatible
+set updatetime=100
+
+" Convert TAB to spaces (2)
+set autoindent
+set noexpandtab
+set shiftwidth=2
+set tabstop=2
+
+" Enable file type detection
+filetype on
+filetype indent on
+filetype plugin on
+
+" Set color scheme
+set termguicolors
+set background=dark
+syntax on
+colorscheme catppuccin_macchiato
+if &diff
+  syntax off
+endif
+
+" Set custom leader key
+map <Space> <Leader>
+
+" Helix-style g-prefixed motions
+nmap gh 0
+nmap gl $
+nmap gs ^
+nmap gt H
+nmap gc M
+nmap gb L
+nmap g. '.
+
+" Register
+nmap <Leader>gr :registers <CR>
+
+" GitGutter key bindings
+nmap <Leader>gd <Plug>(GitGutterPreviewHunk)
+nmap <Leader>gs <Plug>(GitGutterStageHunk)
+nmap <Leader>gu <Plug>(GitGutterUndoHunk)
+
+" Window management
+nmap <Leader>wh <C-w>h
+nmap <Leader>wl <C-w>l
+nmap <Leader>wk <C-w>k
+nmap <Leader>wj <C-w>j
+nmap <Leader>ws <C-w>s
+nmap <Leader>wv <C-w>v
+nmap <Leader>ww <C-w>o
+
+" Map Claude Proofreader / Optimizer
+nmap <F2> :ClaudeProofread<CR>
+vmap <F2> :'<,'>ClaudeProofread<CR>
+nmap <S-F2> :ClaudeOptimize<CR>
+vmap <S-F2> :'<,'>ClaudeOptimize<CR>
+
+" Map spell settings
+set spelllang=en_us
+nmap <F3> :set spell! spell? <CR>
+nmap <Leader>sn ]s
+nmap <Leader>sp [s
+nmap <Leader>sa zg
+nmap <Leader>s= z=
+nmap <Leader>ss 1z=
+
+" Map wrap settings
+set showbreak=↪\
+nmap <F4> :set wrap! linebreak! wrap? <CR>
+
+" Map show hidden characters
+set listchars=eol:$,tab:>-,trail:.,extends:>,precedes:<,space:.
+nmap <F5> :set list! list? <CR>
+
+" Map search settings
+set ignorecase
+set smartcase
+set incsearch
+nmap <F6> :set hlsearch! hlsearch? <CR>
+
+" Map quit all windows
+nmap <F12> :silent! quitall! <CR>
+
+" Map git mergetool
+if &diff
+  nmap <leader>1 :diffget LOCAL<CR>
+  nmap <leader>2 :diffget BASE<CR>
+  nmap <leader>3 :diffget REMOTE<CR>
+endif
+
+" Enable command menu's
+set wildmenu
+set wildmode=full
+source $VIMRUNTIME/menu.vim
+
+" Configure info settings
+set number relativenumber
+set signcolumn=yes
+set laststatus=2
+set statusline=%<%f%m%r\ \[%l/%c]\ \%y%=[%p%%]
+
+" Set cursor
+let &t_SI = "\e[6 q"
+let &t_EI = "\e[2 q"
+
+" Set scroll
+set nowrap
+set scrolloff=9
+set sidescrolloff=9
+set whichwrap=b,s,<,>
+
+" Set swap dir
+set directory=/tmp
+
+" Enable backspace
+set backspace=indent,eol,start
+
+" Disable netrwhist
+let g:netrw_dirhistmax = 0

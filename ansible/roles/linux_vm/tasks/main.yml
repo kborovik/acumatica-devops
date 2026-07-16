@@ -1,0 +1,133 @@
+---
+# Inventory-driven guest provisioning on kronos. Write the Ubuntu cloud image
+# onto an OS zvol, add a data zvol for the Postgres ext4 data disk, build a cloud-init
+# NoCloud seed (hostname + ubuntu SSH key + static IP on the VM subnet), then
+# virt-install --import with the fixed MAC from group_vars/mailpilot.yml.
+# cloud-init grows the root filesystem and brings up networking on first boot,
+# so Ansible can reach the guest at vm_ip as 'ubuntu' straight after.
+
+- name: Provision the guest on kronos
+  delegate_to: kronos
+  become: true
+  block:
+    - name: Install guest-image tooling on kronos
+      ansible.builtin.apt:
+        name: [qemu-utils, cloud-image-utils]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Ensure the cloud-init seed directory exists
+      ansible.builtin.file:
+        path: "{{ vm_seed_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Download the Ubuntu cloud image
+      ansible.builtin.get_url:
+        url: "{{ vm_cloud_image_url }}"
+        dest: "{{ vm_cloud_image_path }}"
+        mode: "0644"
+
+    - name: Check the domain exists
+      ansible.builtin.command: virsh dominfo {{ inventory_hostname }}
+      register: dom_check
+      failed_when: false
+      changed_when: false
+      check_mode: false # read-only probe; later conditionals need its output
+
+    - name: Create the guest (only when the domain is absent)
+      when: dom_check.rc != 0
+      block:
+        # volblocksize is create-only: `zfs set` on an existing zvol fails, so
+        # gate creation on existence. A prior partial run can leave the zvols
+        # behind with the domain absent; skipping recreation also preserves the
+        # data zvol's PostgreSQL contents on re-provision.
+        - name: Check whether the OS zvol already exists
+          ansible.builtin.command: /usr/sbin/zfs list {{ vm_zvol_parent }}/{{ inventory_hostname }}
+          register: os_zvol_check
+          failed_when: false
+          changed_when: false
+          check_mode: false
+
+        - name: Create the OS zvol (sparse)
+          community.general.zfs:
+            name: "{{ vm_zvol_parent }}/{{ inventory_hostname }}"
+            state: present
+            extra_zfs_properties:
+              volsize: "{{ vm_os_disk_size }}"
+              volblocksize: 16k
+              refreservation: none
+          when: os_zvol_check.rc != 0
+
+        - name: Write the cloud image onto the OS zvol
+          ansible.builtin.command:
+            cmd: >-
+              qemu-img convert -O raw {{ vm_cloud_image_path }}
+              /dev/zvol/{{ vm_zvol_parent }}/{{ inventory_hostname }}
+          changed_when: true
+
+        - name: Check whether the data zvol already exists
+          ansible.builtin.command: /usr/sbin/zfs list {{ vm_zvol_parent }}/{{ inventory_hostname }}-data
+          register: data_zvol_check
+          failed_when: false
+          changed_when: false
+          check_mode: false
+
+        - name: Create the data zvol (sparse; guest ext4 data disk for PostgreSQL)
+          community.general.zfs:
+            name: "{{ vm_zvol_parent }}/{{ inventory_hostname }}-data"
+            state: present
+            extra_zfs_properties:
+              volsize: "{{ vm_data_disk_size }}"
+              volblocksize: 16k
+              refreservation: none
+          when: data_zvol_check.rc != 0
+
+        - name: Render cloud-init seed files
+          ansible.builtin.template:
+            src: "{{ item.src }}"
+            dest: "{{ vm_seed_dir }}/{{ inventory_hostname }}-{{ item.name }}"
+            mode: "0644"
+          loop:
+            - { src: user-data.j2, name: user-data }
+            - { src: meta-data.j2, name: meta-data }
+            - { src: network-config.j2, name: network-config }
+
+        - name: Build the cloud-init seed ISO
+          ansible.builtin.command:
+            cmd: >-
+              cloud-localds
+              --network-config={{ vm_seed_dir }}/{{ inventory_hostname }}-network-config
+              {{ vm_seed_dir }}/{{ inventory_hostname }}-seed.iso
+              {{ vm_seed_dir }}/{{ inventory_hostname }}-user-data
+              {{ vm_seed_dir }}/{{ inventory_hostname }}-meta-data
+          changed_when: true
+
+        - name: Define and boot the libvirt domain (virtio disks, fixed MAC)
+          ansible.builtin.command:
+            cmd: >-
+              virt-install
+              --name {{ inventory_hostname }}
+              --memory {{ vm_memory_mb }}
+              --vcpus {{ vm_vcpus }}
+              --cpu host-passthrough
+              --osinfo require=off,name={{ vm_osinfo }}
+              --import
+              --disk path=/dev/zvol/{{ vm_zvol_parent }}/{{ inventory_hostname }},bus=virtio,format=raw,cache=none,discard=unmap
+              --disk path=/dev/zvol/{{ vm_zvol_parent }}/{{ inventory_hostname }}-data,bus=virtio,format=raw,cache=none,discard=unmap
+              --disk path={{ vm_seed_dir }}/{{ inventory_hostname }}-seed.iso,device=cdrom
+              --network network=default,model=virtio,mac={{ vm_mac }}
+              --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0
+              --graphics vnc,listen=127.0.0.1
+              --noautoconsole
+          changed_when: true
+
+    - name: Ensure the guest is running
+      community.libvirt.virt:
+        name: "{{ inventory_hostname }}"
+        state: running
+
+- name: Wait for guest SSH (first boot runs cloud-init — grow, users, network)
+  ansible.builtin.wait_for_connection:
+    timeout: 900

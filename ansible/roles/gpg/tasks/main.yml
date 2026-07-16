@@ -1,0 +1,50 @@
+---
+- name: Install GPG
+  become: true
+  ansible.builtin.apt:
+    package: [gnupg]
+    update_cache: false
+    state: present
+
+- name: Copy GPG signing key
+  ansible.builtin.copy:
+    src: '{{ gpg_signing_key }}'
+    dest: /tmp/signing-key.gpg
+    owner: '{{ gpg_user }}'
+    mode: '0600'
+
+- name: Import GPG signing key
+  become: true
+  become_user: '{{ gpg_user }}'
+  ansible.builtin.command:
+    cmd: gpg --batch --import /tmp/signing-key.gpg
+  register: gpg_import
+  changed_when: '''imported'' in gpg_import.stderr'
+
+- name: Remove temporary signing key
+  ansible.builtin.file:
+    path: /tmp/signing-key.gpg
+    state: absent
+
+- name: Get GPG signing key ID
+  become: true
+  become_user: '{{ gpg_user }}'
+  ansible.builtin.shell:
+    cmd: set -o pipefail && gpg --list-secret-keys --keyid-format long --with-colons | grep '^sec' | head -1 | cut -d':' -f5
+    executable: /bin/bash
+  register: gpg_key_id
+  changed_when: false
+
+- name: Configure git commit signing
+  become: true
+  become_user: '{{ gpg_user }}'
+  ansible.builtin.command:
+    cmd: 'git config --global {{ item.name }} ''{{ item.value }}'''
+  loop:
+    - { name: 'user.signingkey', value: '{{ gpg_key_id.stdout }}' }
+    - { name: 'commit.gpgsign', value: 'true' }
+    - { name: 'tag.gpgsign', value: 'true' }
+    - { name: 'diff.tool', value: 'vimdiff' }
+    - { name: 'difftool.prompt', value: 'false' }
+    - { name: 'diff.algorithm', value: 'histogram' }
+  changed_when: true

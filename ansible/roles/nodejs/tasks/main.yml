@@ -1,0 +1,22 @@
+---
+- name: Add NodeSource apt signing key
+  ansible.builtin.get_url:
+    url: https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key
+    dest: /etc/apt/keyrings/nodesource.asc
+    mode: '0644'
+
+- name: Add NodeSource apt repository (Node {{ nodejs_major_version }}.x)
+  ansible.builtin.deb822_repository:
+    name: nodesource
+    types: [deb]
+    uris: https://deb.nodesource.com/node_{{ nodejs_major_version }}.x
+    suites: [nodistro]
+    components: [main]
+    signed_by: /etc/apt/keyrings/nodesource.asc
+    state: present
+
+- name: Install Node.js (includes npm)  # noqa: package-latest
+  ansible.builtin.apt:
+    name: nodejs
+    state: latest
+    update_cache: true

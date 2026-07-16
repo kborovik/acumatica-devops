@@ -1,0 +1,16 @@
+---
+# Version is required — pass it explicitly (make deploy version=X.Y.Z) or let the
+# Makefile resolve the latest PyPI release.
+mailpilot_version: ''
+
+# PyPI distribution name. The import package and CLI command stay "mailpilot".
+mailpilot_package: mailpilot-crm
+
+# Dedicated service account the daemon runs as. Its home holds the uv tool
+# install and the runtime config (~/.mailpilot/config.json). The PostgreSQL role
+# and database are named after this user (localhost trust → peer identity).
+mailpilot_user: mailpilot
+mailpilot_group: mailpilot
+mailpilot_home: /home/mailpilot
+
+uv_python_version: '3.14'

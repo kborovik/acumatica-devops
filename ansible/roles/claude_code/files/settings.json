@@ -1,0 +1,39 @@
+{
+  "includeCoAuthoredBy": false,
+  "permissions": {
+    "allow": ["WebSearch"],
+    "defaultMode": "auto"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "sh ~/.claude/statusline-command.sh"
+  },
+  "enabledPlugins": {
+    "logfire@pydantic-skills": true,
+    "sdd@pilot-skills": true,
+    "gh@pilot-skills": true,
+    "core@pilot-skills": true
+  },
+  "extraKnownMarketplaces": {
+    "pydantic-skills": {
+      "source": {
+        "source": "github",
+        "repo": "pydantic/skills"
+      },
+      "autoUpdate": true
+    },
+    "pilot-skills": {
+      "source": {
+        "source": "github",
+        "repo": "kborovik/pilot-skills"
+      },
+      "autoUpdate": true
+    }
+  },
+  "effortLevel": "xhigh",
+  "autoUpdatesChannel": "stable",
+  "skipDangerousModePermissionPrompt": true,
+  "theme": "dark-ansi",
+  "editorMode": "vim",
+  "skipAutoPermissionPrompt": true
+}

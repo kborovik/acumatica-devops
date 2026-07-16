@@ -1,0 +1,61 @@
+---
+- name: Install or update Claude Code
+  ansible.builtin.shell:
+    cmd: set -o pipefail && curl -fsSL https://claude.ai/install.sh | bash
+    executable: /bin/bash
+  become: true
+  become_user: '{{ claude_code_user }}'
+  register: claude_code_install
+  changed_when: "'Installing' in claude_code_install.stdout or 'Updating' in claude_code_install.stdout"
+
+- name: Add Claude Code to system PATH
+  ansible.builtin.file:
+    src: '{{ claude_code_home }}/.local/bin/claude'
+    dest: /usr/local/bin/claude
+    state: link
+    force: true
+
+- name: Verify Claude Code installation
+  ansible.builtin.command:
+    cmd: claude --version
+  become: true
+  become_user: '{{ claude_code_user }}'
+  register: claude_code_version
+  changed_when: false
+
+- name: Display Claude Code version
+  ansible.builtin.debug:
+    msg: 'Claude Code version: {{ claude_code_version.stdout }}'
+
+- name: Render LOGFIRE_TOKEN into fish init
+  ansible.builtin.template:
+    src: logfire.fish.j2
+    dest: '{{ claude_code_home }}/.config/fish/conf.d/logfire.fish'
+    owner: '{{ claude_code_user }}'
+    group: '{{ claude_code_group }}'
+    mode: '0600'
+
+- name: Ensure ~/.claude directory exists
+  ansible.builtin.file:
+    path: '{{ claude_code_home }}/.claude'
+    state: directory
+    owner: '{{ claude_code_user }}'
+    group: '{{ claude_code_group }}'
+    mode: '0755'
+
+- name: Deploy Claude Code settings.json (only if missing)
+  ansible.builtin.copy:
+    src: settings.json
+    dest: '{{ claude_code_home }}/.claude/settings.json'
+    owner: '{{ claude_code_user }}'
+    group: '{{ claude_code_group }}'
+    mode: '0644'
+    force: false
+
+- name: Deploy Claude Code statusline script
+  ansible.builtin.copy:
+    src: statusline-command.sh
+    dest: '{{ claude_code_home }}/.claude/statusline-command.sh'
+    owner: '{{ claude_code_user }}'
+    group: '{{ claude_code_group }}'
+    mode: '0755'

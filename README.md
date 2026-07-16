@@ -2,7 +2,9 @@
 
 Ansible-managed Ubuntu Linux infrastructure for a test/dev **Acumatica ERP** lab.
 One Ubuntu Linux host runs KVM. Each Acumatica instance is a Windows Server VM
-cloned from a golden image. This README is the operator manual.
+cloned from a golden image. The host also carries the **MailPilot** Ubuntu
+guest(s) — see [docs/mailpilot.md](docs/mailpilot.md). This README is the
+operator manual.
 
 Commands below write the host's SSH alias as `<host>` — substitute the name you
 gave it in `~/.ssh/config`.
@@ -13,6 +15,8 @@ gave it in `~/.ssh/config`.
   NAT, SMB shares, and a Tailscale subnet router.
 - Clones a Windows Server golden image into one VM per Acumatica instance.
 - Installs SQL Server and Acumatica ERP into each instance, unattended.
+- Creates one Ubuntu guest per MailPilot instance from the Ubuntu cloud image
+  (zvols + cloud-init) and deploys PostgreSQL 18 + `mailpilot-crm` into it.
 
 Everything runs through Ansible from a control machine. All host changes go
 through Ansible — do not hand-edit the host directly.
@@ -47,11 +51,12 @@ The lab resolves it to a Tailscale MagicDNS name. Host runs Ubuntu 26.04 LTS.
 
 ## Storage layout (ZFS)
 
-Pool is `upool`. Acumatica-related datasets:
+Pool is `upool`. Datasets:
 
-- `upool/vms` — VM disks, one zvol per VM (`upool/vms/<name>`, plus `-data` and
-  `-backup` zvols). Snapshotted daily by one atomic `zfs snapshot -r`
-  (`vm_snap_keep` kept) as a crash-consistent whole-VM rollback net.
+- `upool/vms` — VM disks, one zvol per VM disk (`upool/vms/<name>`, plus
+  `-data` and `-backup` zvols) for both the Windows and MailPilot guests.
+  Snapshotted daily by one atomic `zfs snapshot -r` (`vm_snap_keep` kept) as a
+  crash-consistent whole-VM rollback net.
 - `upool/distr` → `/upool/distr` — ISO images and installers (Acumatica MSI, SQL
   Server ISO). SMB share `\\<host>\distr`.
 - `upool/backups/mssql` → `/upool/backups/mssql` — SQL Server backups. SMB share
@@ -61,9 +66,10 @@ Pool is `upool`. Acumatica-related datasets:
 
 All targets wrap `ansible-playbook site.yml`. Run from the repo root.
 
-- `make site` — apply the full stack: the Ubuntu Linux host, then clone and
-  provision every `acu` instance.
-- `make ping` — Ansible connectivity test against the Ubuntu Linux host.
+- `make site` — apply the full stack: the Ubuntu Linux host, every `acu`
+  instance, and every `mailpilot` guest.
+- `make ping` — Ansible connectivity test against the Ubuntu Linux host
+  (`LIMIT=mailpilot` for the guests).
 - `make lint` — `ansible-lint` over the ansible tree.
 - `make deps` — install collection dependencies.
 - `make help` — list all targets.
@@ -73,9 +79,13 @@ All targets wrap `ansible-playbook site.yml`. Run from the repo root.
     make vm LIMIT=acu-dev1          # clone + DHCP/DNS + rename one VM
     make mssql LIMIT=acu-dev1       # data disk + SQL Server for one VM
     make acumatica LIMIT=acu-dev1   # Acumatica MSI + IIS/ac.exe for one VM
+    make vm LIMIT=mailpilot-1       # create the MailPilot Ubuntu guest
+    make config LIMIT=mailpilot-1   # configure it (tools, Postgres, CLIs)
+    make mailpilot                  # deploy/upgrade mailpilot-crm
 
 Single-role targets for the host stack: `make kvm`, `make storage`,
-`make network`, `make fileserver`, `make fish`.
+`make network`, `make fileserver`, `make fish`. MailPilot guest specifics —
+secrets, app config, backups — are in [docs/mailpilot.md](docs/mailpilot.md).
 
 ## Add an Acumatica instance
 
@@ -105,8 +115,8 @@ Golden-image build, instance internals, and Tailscale access are documented in
 
 ## Role reference
 
-`site.yml` runs three plays: the Ubuntu Linux host stack, guest VM cloning, then
-the Windows guests. Roles in order:
+`site.yml` runs the Ubuntu Linux host stack, then the Windows guests, then the
+MailPilot guests. Roles in order:
 
 - **kvm** — hypervisor plus `win-vm-create`, `win-vm-rm`, and `qga-exec` helper
   scripts. Golden-image build, teardown, guest-agent rescue.
@@ -126,3 +136,13 @@ the Windows guests. Roles in order:
   guest, then IIS plus `ac.exe` instance deployment. Produces AcumaticaDB and a
   site at `http://<vm>/AcumaticaERP`. `make acumatica LIMIT=<vm>`.
 - **fish_shell** — fish config for kb.
+- **linux_vm** — inventory-driven Ubuntu guest provisioning (group `mailpilot`):
+  OS zvol written from the cloud image, a data zvol, a cloud-init NoCloud seed
+  (hostname + `ubuntu` SSH key + static IP), then `virt-install --import`.
+- **postgresql** — ext4 on the guest data disk (vdb) mounted at
+  `/var/lib/postgresql`, then PostgreSQL 18 from pgdg; optional `pilot` remote
+  and `reporter` read-only roles.
+- **tools / github_cli / google_cli / gpg / tailscale / nodejs / claude_code /
+  firecrawl_cli / googleworkspace_cli** — MailPilot guest OS + operator tooling.
+- **mailpilot** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
+  user, database bootstrap, `mailpilot.service`. `make mailpilot`.

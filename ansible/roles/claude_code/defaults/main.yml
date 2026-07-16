@@ -1,0 +1,5 @@
+---
+claude_code_user: ubuntu
+claude_code_group: ubuntu
+claude_code_home: /home/ubuntu
+logfire_read_token: ''

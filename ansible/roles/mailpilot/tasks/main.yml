@@ -1,0 +1,142 @@
+---
+- name: Assert mailpilot_version is set
+  ansible.builtin.assert:
+    that:
+      - mailpilot_version | length > 0
+    fail_msg: "mailpilot_version must be set (e.g. --extra-vars 'mailpilot_version=0.18.0')"
+
+- name: Create mailpilot service group
+  ansible.builtin.group:
+    name: '{{ mailpilot_group }}'
+    system: true
+
+- name: Create mailpilot service user
+  ansible.builtin.user:
+    name: '{{ mailpilot_user }}'
+    group: '{{ mailpilot_group }}'
+    home: '{{ mailpilot_home }}'
+    shell: /bin/bash
+    system: true
+    create_home: true
+
+- name: Install uv for the mailpilot user
+  ansible.builtin.shell:
+    cmd: set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | sh
+    executable: /bin/bash
+    creates: '{{ mailpilot_home }}/.local/bin/uv'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+
+- name: Install Python {{ uv_python_version }} via uv
+  ansible.builtin.command:
+    cmd: '{{ mailpilot_home }}/.local/bin/uv python install {{ uv_python_version }}'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  register: uv_python_install
+  changed_when: "'Installed' in uv_python_install.stderr"
+
+- name: Install mailpilot v{{ mailpilot_version }} from PyPI
+  ansible.builtin.command:
+    cmd: >-
+      {{ mailpilot_home }}/.local/bin/uv tool install
+      --python {{ uv_python_version }}
+      --upgrade
+      {{ mailpilot_package }}=={{ mailpilot_version }}
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  register: mailpilot_install
+  changed_when: "'Installed' in mailpilot_install.stderr or 'Updated' in mailpilot_install.stderr"
+
+- name: Verify mailpilot installation
+  ansible.builtin.command:
+    cmd: '{{ mailpilot_home }}/.local/bin/mailpilot --version'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  register: mailpilot_version_check
+  changed_when: false
+
+- name: Display mailpilot version
+  ansible.builtin.debug:
+    msg: 'mailpilot version: {{ mailpilot_version_check.stdout }}'
+
+- name: Add mailpilot to system PATH
+  ansible.builtin.file:
+    src: '{{ mailpilot_home }}/.local/bin/mailpilot'
+    dest: /usr/local/bin/mailpilot
+    state: link
+    force: true
+
+- name: Ensure PostgreSQL cluster is started
+  ansible.builtin.command:
+    cmd: /usr/bin/pg_ctlcluster 18 main start
+  register: pg_start
+  changed_when: pg_start.rc == 0 and 'already running' not in (pg_start.stderr | default(''))
+  failed_when: pg_start.rc != 0 and 'already running' not in (pg_start.stderr | default(''))
+
+- name: Check if {{ mailpilot_user }} PostgreSQL role exists
+  ansible.builtin.command:
+    cmd: psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ mailpilot_user }}'" postgres
+  become: true
+  become_user: postgres
+  register: mailpilot_pg_role_check
+  changed_when: false
+
+- name: Create {{ mailpilot_user }} PostgreSQL role if missing
+  ansible.builtin.command:
+    cmd: psql -c "CREATE ROLE {{ mailpilot_user }} WITH LOGIN CREATEDB"
+  become: true
+  become_user: postgres
+  when: mailpilot_pg_role_check.stdout != '1'
+
+- name: Check if mailpilot database exists
+  ansible.builtin.command:
+    cmd: psql -tAc "SELECT 1 FROM pg_database WHERE datname='mailpilot'" postgres
+  become: true
+  become_user: postgres
+  register: mailpilot_pg_db_check
+  changed_when: false
+
+- name: Create mailpilot database if missing
+  ansible.builtin.command:
+    cmd: createdb -O {{ mailpilot_user }} mailpilot
+  become: true
+  become_user: postgres
+  when: mailpilot_pg_db_check.stdout != '1'
+
+- name: Check public schema owner in mailpilot database
+  ansible.builtin.command:
+    cmd: psql -tAc "SELECT nspowner::regrole FROM pg_namespace WHERE nspname='public'" mailpilot
+  become: true
+  become_user: postgres
+  register: public_schema_owner
+  changed_when: false
+
+- name: Grant {{ mailpilot_user }} ownership of public schema in mailpilot database
+  ansible.builtin.command:
+    cmd: psql -d mailpilot -c "ALTER SCHEMA public OWNER TO {{ mailpilot_user }}"
+  become: true
+  become_user: postgres
+  when: public_schema_owner.stdout != mailpilot_user
+
+- name: Initialize database schema
+  ansible.builtin.command:
+    cmd: '{{ mailpilot_home }}/.local/bin/mailpilot status'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  changed_when: false
+
+- name: Install mailpilot systemd unit
+  ansible.builtin.template:
+    src: mailpilot.service.j2
+    dest: /etc/systemd/system/mailpilot.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart mailpilot
+
+- name: Enable and start mailpilot service
+  ansible.builtin.systemd:
+    name: mailpilot.service
+    state: started
+    enabled: true
+    daemon_reload: true
