@@ -1,0 +1,46 @@
+---
+# Unattended apt upgrades on every Linux instance (the kronos host and the
+# mailpilot guests). The unattended-upgrades package ships apt-daily.timer
+# (download) and apt-daily-upgrade.timer (apply); we enable the periodic keys,
+# widen the origins past the security-only default to the -updates pocket, and
+# let the machine reboot itself when an upgrade needs one.
+#
+# Reboots run off-hours (unattended_upgrade_reboot_time). On kronos (a
+# hypervisor) the guest domains autostart with the host (acumatica_vm /
+# mailpilot_vm set autostart on the libvirt domain), so they come back after an
+# auto-reboot; override the reboot time per group/host if the windows collide.
+
+- name: Install unattended-upgrades
+  ansible.builtin.apt:
+    name: unattended-upgrades
+    state: present
+    update_cache: true
+
+- name: Enable periodic update + unattended upgrade
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/20auto-upgrades
+    owner: root
+    group: root
+    mode: "0644"
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Download-Upgradeable-Packages "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+
+- name: Configure allowed origins + automatic reboot
+  ansible.builtin.template:
+    src: 52unattended-upgrades-local.j2
+    dest: /etc/apt/apt.conf.d/52unattended-upgrades-local
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Enable the apt-daily timers
+  ansible.builtin.systemd:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+  loop:
+    - apt-daily.timer
+    - apt-daily-upgrade.timer

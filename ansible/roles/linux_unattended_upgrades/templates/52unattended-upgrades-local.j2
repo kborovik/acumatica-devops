@@ -1,0 +1,20 @@
+// {{ ansible_managed }}
+// Loaded after 50unattended-upgrades (52 > 50), so the scalar keys below win.
+
+// Widen past the security-only default to keep the machine current. These
+// append to 50unattended-upgrades; the duplicate -security entry is harmless.
+Unattended-Upgrade::Allowed-Origins {
+    "${distro_id}:${distro_codename}";
+    "${distro_id}:${distro_codename}-security";
+    "${distro_id}ESMApps:${distro_codename}-apps-security";
+    "${distro_id}ESM:${distro_codename}-infra-security";
+    "${distro_id}:${distro_codename}-updates";
+};
+
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+// Reboot when an upgrade requires it (new kernel, glibc, ...).
+Unattended-Upgrade::Automatic-Reboot "{{ 'true' if unattended_upgrade_reboot else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "{{ 'true' if unattended_upgrade_reboot else 'false' }}";
+Unattended-Upgrade::Automatic-Reboot-Time "{{ unattended_upgrade_reboot_time }}";

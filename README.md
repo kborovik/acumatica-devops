@@ -85,6 +85,8 @@ All targets wrap `ansible-playbook site.yml`. Run from the repo root.
 
 Single-role targets for the host stack: `make host-kvm`, `make host-storage`
 (ZFS datasets + sanoid), `make host-network`, `make host-smb`, `make host-base`.
+`make linux-unattended-upgrades` applies automatic apt upgrades to every Linux
+instance at once (the kronos host and the mailpilot guests).
 MailPilot guest specifics — secrets, app config, backups — are in
 [docs/mailpilot.md](docs/mailpilot.md).
 
@@ -128,6 +130,12 @@ MailPilot guests. Roles in order:
   split-DNS dnsmasq. VMs resolve as `<vm>.vm.internal` on the tailnet.
 - **host_smb** — SMB shares over `/upool`: `distr`, `mssql-backups`.
 - **host_base** — base host config for kb (fish shell).
+- **linux_unattended_upgrades** — automatic apt upgrades (security + `-updates`)
+  via `unattended-upgrades`, on every Linux instance (the kronos host and the
+  mailpilot guests). Each reboots itself off-hours (02:00 local,
+  `unattended_upgrade_reboot_time`) when an upgrade requires it. The guest
+  domains are set to libvirt autostart (in `acumatica_vm` / `mailpilot_vm`), so
+  they come back automatically after the kronos host reboots.
 - **acumatica_vm** — inventory-driven guest provisioning. An `acu` host with
   `vm_ip` gets a derived MAC, a ZFS clone of `ws2025-base`, and a first-boot
   rename. `make acumatica-vm LIMIT=<vm>`.
@@ -147,7 +155,6 @@ MailPilot guests. Roles in order:
   and `reporter` read-only roles.
 - **mailpilot_tools / mailpilot_github_cli / mailpilot_google_cli /
   mailpilot_gpg / mailpilot_tailscale / mailpilot_nodejs / mailpilot_claude_code
-  / mailpilot_firecrawl_cli / mailpilot_googleworkspace_cli** — MailPilot guest
-  OS + operator tooling.
+  / mailpilot_firecrawl_cli** — MailPilot guest OS + operator tooling.
 - **mailpilot_crm** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
   user, database bootstrap, `mailpilot.service`. `make mailpilot-release`.

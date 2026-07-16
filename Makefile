@@ -17,11 +17,12 @@ pass_namespace := mailpilot-devops
 
 .PHONY: default help site lint deps ping \
         host-base host-kvm host-storage host-network host-smb \
+        linux-unattended-upgrades \
         acumatica-vm acumatica-config acumatica-release acumatica-status \
         mailpilot-vm mailpilot-config mailpilot-release mailpilot-stats \
         mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli \
         mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code \
-        mailpilot-firecrawl-cli mailpilot-googleworkspace-cli \
+        mailpilot-firecrawl-cli \
         release major minor patch
 
 # Best-effort secrets from pass(1). Missing keys resolve to empty strings; the
@@ -116,6 +117,15 @@ host-smb: ## SMB shares over /upool (distr, mssql-backups)
 	$(call tags,host_smb)
 
 ###############################################################################
+# Cross-cutting Linux roles (kronos host + mailpilot guests)
+###############################################################################
+
+# Untagged limit: the linux_unattended_upgrades tag runs in both the kronos and
+# the mailpilot config plays, so this applies to every Linux instance at once.
+linux-unattended-upgrades: ## automatic apt upgrades + auto-reboot on all Linux instances
+	$(call tags,linux_unattended_upgrades)
+
+###############################################################################
 # Acumatica instances (group acu)
 ###############################################################################
 
@@ -180,9 +190,8 @@ mailpilot-stats: ## MailPilot service status + SSH (22) reachability
 # role/tag names in site.yml:
 #   make mailpilot-tools | mailpilot-postgresql | mailpilot-nodejs |
 #        mailpilot-github-cli | mailpilot-google-cli | mailpilot-tailscale |
-#        mailpilot-claude-code | mailpilot-firecrawl-cli |
-#        mailpilot-googleworkspace-cli   [LIMIT=mailpilot-1]
-mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code mailpilot-firecrawl-cli mailpilot-googleworkspace-cli:
+#        mailpilot-claude-code | mailpilot-firecrawl-cli   [LIMIT=mailpilot-1]
+mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code mailpilot-firecrawl-cli:
 	cd ansible
 	$(load_secrets)
 	$(PLAYBOOK) --tags $(subst -,_,$@) $(LIMIT_ARG) --extra-vars "$$extra_vars"

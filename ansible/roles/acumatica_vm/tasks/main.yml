@@ -45,10 +45,11 @@
             --mac {{ vm_mac }}
           changed_when: true
 
-    - name: Ensure the VM is running
+    - name: Ensure the VM is running and autostarts with the host
       community.libvirt.virt:
         name: "{{ inventory_hostname }}"
         state: running
+        autostart: true # kronos may auto-reboot for upgrades (linux_unattended_upgrades)
 
 - name: Wait for guest SSH (first boot of a fresh clone takes a while)
   ansible.builtin.wait_for_connection:

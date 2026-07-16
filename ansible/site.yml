@@ -7,6 +7,8 @@
 #                   split-DNS dnsmasq (VM names for the tailnet)
 #   host_smb        SMB shares over /upool (distr, mssql-backups)
 #   host_base       base host config for kb (fish shell)
+#   linux_unattended_upgrades  automatic apt upgrades + auto-reboot; runs on
+#                   every Linux instance (kronos here, mailpilot guests below)
 #   acumatica_vm    per-instance Windows VM from the golden image (zfs clone,
 #                   derived MAC, first-boot rename) — inventory-driven, group acu
 #   acumatica_mssql per-instance Windows layer (data disk + SQL Server), group acu
@@ -14,7 +16,7 @@
 #                   instance deployment (db + site), group acu
 #   mailpilot_vm    per-instance Ubuntu VM from the cloud image (zvols + cloud-init
 #                   seed) — inventory-driven, group mailpilot
-#   mailpilot_tools..mailpilot_googleworkspace_cli  mailpilot guest config: OS
+#   mailpilot_tools..mailpilot_firecrawl_cli  mailpilot guest config: OS
 #                   tools, operator CLIs, ext4 data disk + PostgreSQL 18
 #   mailpilot_crm   mailpilot-crm from PyPI + systemd service, group mailpilot
 #
@@ -29,6 +31,7 @@
     - { role: host_network, tags: host_network }
     - { role: host_smb, tags: host_smb }
     - { role: host_base, tags: host_base }
+    - { role: linux_unattended_upgrades, tags: linux_unattended_upgrades }
 
 # no gather_facts: the guest may not exist yet — the role creates it
 - name: Clone Windows guests from the golden image (per inventory)
@@ -55,6 +58,7 @@
   hosts: mailpilot
   gather_facts: true
   roles:
+    - { role: linux_unattended_upgrades, tags: linux_unattended_upgrades }
     - { role: mailpilot_tools, tags: mailpilot_tools }
     - { role: mailpilot_github_cli, tags: mailpilot_github_cli }
     - { role: mailpilot_google_cli, tags: mailpilot_google_cli }
@@ -66,7 +70,6 @@
     - { role: mailpilot_nodejs, tags: mailpilot_nodejs }
     - { role: mailpilot_claude_code, tags: mailpilot_claude_code }
     - { role: mailpilot_firecrawl_cli, tags: mailpilot_firecrawl_cli }
-    - { role: mailpilot_googleworkspace_cli, tags: mailpilot_googleworkspace_cli }
 
 - name: Deploy the MailPilot application
   hosts: mailpilot

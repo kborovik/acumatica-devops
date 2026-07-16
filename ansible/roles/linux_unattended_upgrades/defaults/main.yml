@@ -1,0 +1,5 @@
+---
+# Automatic apt upgrades on kronos (unattended-upgrades). Reboot when a package
+# (typically a new kernel) needs it; time is host-local (24h HH:MM).
+unattended_upgrade_reboot: true
+unattended_upgrade_reboot_time: "02:00"

@@ -123,10 +123,11 @@
               --noautoconsole
           changed_when: true
 
-    - name: Ensure the guest is running
+    - name: Ensure the guest is running and autostarts with the host
       community.libvirt.virt:
         name: "{{ inventory_hostname }}"
         state: running
+        autostart: true # kronos may auto-reboot for upgrades (linux_unattended_upgrades)
 
 - name: Wait for guest SSH (first boot runs cloud-init — grow, users, network)
   ansible.builtin.wait_for_connection:
