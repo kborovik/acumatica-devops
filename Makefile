@@ -19,8 +19,9 @@ pass_namespace := mailpilot-devops
         host-base host-kvm host-storage host-network host-smb \
         acumatica-vm acumatica-config acumatica-release acumatica-status \
         mailpilot-vm mailpilot-config mailpilot-release mailpilot-stats \
-        tools postgresql nodejs github_cli google_cli tailscale \
-        claude_code firecrawl_cli googleworkspace_cli \
+        mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli \
+        mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code \
+        mailpilot-firecrawl-cli mailpilot-googleworkspace-cli \
         release major minor patch
 
 # Best-effort secrets from pass(1). Missing keys resolve to empty strings; the
@@ -100,19 +101,19 @@ deps:
 ###############################################################################
 
 host-base: ## kronos base config — fish shell for kb (+ future host tweaks)
-	$(call tags,fish)
+	$(call tags,host_base)
 
 host-kvm: ## hypervisor + VM lifecycle scripts (win-vm-*, qga-exec)
-	$(call tags,kvm)
+	$(call tags,host_kvm)
 
 host-storage: ## ZFS datasets + sanoid snapshot schedules (VM zvols + mssql backups)
-	$(call tags,storage$(comma)sanoid)
+	$(call tags,host_storage$(comma)host_sanoid)
 
 host-network: ## libvirt NAT / DHCP leases / split-DNS + tailscale subnet router
-	$(call tags,network)
+	$(call tags,host_network)
 
 host-smb: ## SMB shares over /upool (distr, mssql-backups)
-	$(call tags,fileserver)
+	$(call tags,host_smb)
 
 ###############################################################################
 # Acumatica instances (group acu)
@@ -122,17 +123,17 @@ host-smb: ## SMB shares over /upool (distr, mssql-backups)
 # boot; kronos stays in the limit or the network play is skipped.
 acumatica-vm: ## clone/create the Acumatica Windows VMs (LIMIT=acu-dev1 for one)
 	cd ansible
-	$(PLAYBOOK) --tags network$(comma)vm -l kronos$(comma)$(if $(LIMIT),$(LIMIT),acu)
+	$(PLAYBOOK) --tags host_network$(comma)acumatica_vm -l kronos$(comma)$(if $(LIMIT),$(LIMIT),acu)
 
 # everything on the acu VMs except the VM clone and the Acumatica app itself:
 # data disk + SQL Server today, plus any future supporting roles.
 acumatica-config: ## SQL Server + supporting software on the acu VMs (LIMIT=acu-dev1 for one)
 	cd ansible
-	$(PLAYBOOK) -l $(if $(LIMIT),$(LIMIT),acu) --skip-tags vm$(comma)acumatica
+	$(PLAYBOOK) -l $(if $(LIMIT),$(LIMIT),acu) --skip-tags acumatica_vm$(comma)acumatica_erp
 
 acumatica-release: ## install the Acumatica ERP MSI + IIS/ac.exe instance (LIMIT=acu-dev1 for one)
 	cd ansible
-	$(PLAYBOOK) --tags acumatica $(LIMIT_ARG)
+	$(PLAYBOOK) --tags acumatica_erp $(LIMIT_ARG)
 
 acumatica-status: ## acu VM reachability — SSH (22) + IIS (80) port checks
 	cd ansible
@@ -151,20 +152,20 @@ acumatica-status: ## acu VM reachability — SSH (22) + IIS (80) port checks
 # boot; kronos stays in the limit or the network play is skipped.
 mailpilot-vm: ## create the MailPilot Ubuntu guests (LIMIT=mailpilot-1 for one)
 	cd ansible
-	$(PLAYBOOK) --tags network$(comma)vm -l kronos$(comma)$(if $(LIMIT),$(LIMIT),mailpilot)
+	$(PLAYBOOK) --tags host_network$(comma)mailpilot_vm -l kronos$(comma)$(if $(LIMIT),$(LIMIT),mailpilot)
 
 # guest config only: limit to the mailpilot group so the kronos/acu plays are out
 # of scope, then skip the create-VM and app-deploy tags.
 mailpilot-config: ## configure the MailPilot guests — OS, data disk, Postgres, operator tooling
 	cd ansible
 	$(load_secrets)
-	$(PLAYBOOK) -l $(if $(LIMIT),$(LIMIT),mailpilot) --skip-tags vm$(comma)mailpilot --extra-vars "$$extra_vars"
+	$(PLAYBOOK) -l $(if $(LIMIT),$(LIMIT),mailpilot) --skip-tags mailpilot_vm$(comma)mailpilot_crm --extra-vars "$$extra_vars"
 
 mailpilot-release: ## install/upgrade mailpilot-crm + (re)start the service [version=X.Y.Z]
 	cd ansible
 	$(resolve_version)
 	$(call header,Deploy mailpilot-crm==$$v)
-	$(PLAYBOOK) --tags mailpilot $(LIMIT_ARG) --extra-vars "mailpilot_version=$$v"
+	$(PLAYBOOK) --tags mailpilot_crm $(LIMIT_ARG) --extra-vars "mailpilot_version=$$v"
 
 mailpilot-stats: ## MailPilot service status + SSH (22) reachability
 	cd ansible
@@ -174,13 +175,17 @@ mailpilot-stats: ## MailPilot service status + SSH (22) reachability
 	done
 	ansible mailpilot $(LIMIT_ARG) -m shell -a "systemctl is-active mailpilot.service; echo '---'; mailpilot --version; echo '---'; journalctl -u mailpilot --no-pager -n 5"
 
-# Single-role convenience targets for the mailpilot guests (secrets threaded):
-#   make tools | postgresql | nodejs | github_cli | google_cli | tailscale |
-#        claude_code | firecrawl_cli | googleworkspace_cli   [LIMIT=mailpilot-1]
-tools postgresql nodejs github_cli google_cli tailscale claude_code firecrawl_cli googleworkspace_cli:
+# Single-role convenience targets for the mailpilot guests (secrets threaded).
+# The tag is the target name with hyphens flipped to underscores, matching the
+# role/tag names in site.yml:
+#   make mailpilot-tools | mailpilot-postgresql | mailpilot-nodejs |
+#        mailpilot-github-cli | mailpilot-google-cli | mailpilot-tailscale |
+#        mailpilot-claude-code | mailpilot-firecrawl-cli |
+#        mailpilot-googleworkspace-cli   [LIMIT=mailpilot-1]
+mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code mailpilot-firecrawl-cli mailpilot-googleworkspace-cli:
 	cd ansible
 	$(load_secrets)
-	$(PLAYBOOK) --tags $@ $(LIMIT_ARG) --extra-vars "$$extra_vars"
+	$(PLAYBOOK) --tags $(subst -,_,$@) $(LIMIT_ARG) --extra-vars "$$extra_vars"
 
 ###############################################################################
 # Release

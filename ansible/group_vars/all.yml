@@ -22,17 +22,17 @@ vm_dhcp_hosts: >-
      + (groups['mailpilot'] | default([]) | map('extract', hostvars, 'vm_dhcp_entry') | list) }}
 # tailnet-wide VM names (<name>.{{ vm_dns_domain }}): dnsmasq on kronos's
 # tailscale IP serves vm_dhcp_hosts records; Tailscale split DNS points the
-# domain there (one-time admin-console step, see roles/network/tasks/main.yml)
+# domain there (one-time admin-console step, see roles/host_network/tasks/main.yml)
 vm_dns_domain: vm.internal
 
-# --- fileserver: SMB shares (\\kronos\distr, \\kronos\mssql-backups) -----------
+# --- host_smb: SMB shares (\\kronos\distr, \\kronos\mssql-backups) -----------
 # samba-only accounts; passwords generated on kronos at /root/<user>.smbpasswd
 smb_distr_user: svc-distr
 smb_backup_user: svc-backup
 iso_dir: '{{ distr_mount }}/iso' # OS / driver ISOs used by win-vm-create
 virtio_win_iso: '{{ iso_dir }}/virtio-win-0.1.285.iso'
 
-# --- mailpilot guests: Ubuntu cloud image (linux_vm role) ----------------------
+# --- mailpilot guests: Ubuntu cloud image (mailpilot_vm role) ----------------------
 # Ubuntu 26.04 LTS "Resolute Raccoon" (matches the kronos host). The codename
 # also keys the third-party apt repos in the postgresql and tailscale roles, so
 # it lives here as one source of truth. Downloaded once to the distr share;

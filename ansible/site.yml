@@ -1,74 +1,75 @@
 ---
 # Deployment stack for the Acumatica dev/tst/prd lab + the MailPilot guest:
-#   kvm        hypervisor + VM lifecycle scripts (win-vm-*, qga-exec)
-#   storage    ZFS datasets
-#   sanoid     snapshot schedules (daily recursive VM zvols + mssql backups)
-#   network    libvirt NAT net, static DHCP leases, tailscale subnet router,
-#              split-DNS dnsmasq (VM names for the tailnet)
-#   fileserver SMB shares over /upool (distr, mssql-backups)
-#   vm_clone   per-instance Windows VM from the golden image (zfs clone,
-#              derived MAC, first-boot rename) — inventory-driven, group acu
-#   linux_vm   per-instance Ubuntu VM from the cloud image (zvols + cloud-init
-#              seed) — inventory-driven, group mailpilot
-#   mssql      per-instance Windows layer (data disk + SQL Server), group acu
-#   acumatica  Acumatica ERP: installer MSI from the distr share + IIS/ac.exe
-#              instance deployment (db + site), group acu
-#   tools..googleworkspace_cli  mailpilot guest config: OS tools, operator
-#              CLIs, ext4 data disk + PostgreSQL 18 (postgresql role)
-#   mailpilot  mailpilot-crm from PyPI + systemd service, group mailpilot
+#   host_kvm        hypervisor + VM lifecycle scripts (win-vm-*, qga-exec)
+#   host_storage    ZFS datasets
+#   host_sanoid     snapshot schedules (daily recursive VM zvols + mssql backups)
+#   host_network    libvirt NAT net, static DHCP leases, tailscale subnet router,
+#                   split-DNS dnsmasq (VM names for the tailnet)
+#   host_smb        SMB shares over /upool (distr, mssql-backups)
+#   host_base       base host config for kb (fish shell)
+#   acumatica_vm    per-instance Windows VM from the golden image (zfs clone,
+#                   derived MAC, first-boot rename) — inventory-driven, group acu
+#   acumatica_mssql per-instance Windows layer (data disk + SQL Server), group acu
+#   acumatica_erp   Acumatica ERP: installer MSI from the distr share + IIS/ac.exe
+#                   instance deployment (db + site), group acu
+#   mailpilot_vm    per-instance Ubuntu VM from the cloud image (zvols + cloud-init
+#                   seed) — inventory-driven, group mailpilot
+#   mailpilot_tools..mailpilot_googleworkspace_cli  mailpilot guest config: OS
+#                   tools, operator CLIs, ext4 data disk + PostgreSQL 18
+#   mailpilot_crm   mailpilot-crm from PyPI + systemd service, group mailpilot
 #
 #   ansible-playbook site.yml [--tags <role>] [-l acu-dev1|mailpilot-1]
 #
 - name: Configure kronos as KVM host for Windows / Acumatica instances
   hosts: kronos
   roles:
-    - { role: kvm, tags: kvm }
-    - { role: storage, tags: storage }
-    - { role: sanoid, tags: sanoid }
-    - { role: network, tags: network }
-    - { role: fileserver, tags: fileserver }
-    - { role: fish_shell, tags: fish }
+    - { role: host_kvm, tags: host_kvm }
+    - { role: host_storage, tags: host_storage }
+    - { role: host_sanoid, tags: host_sanoid }
+    - { role: host_network, tags: host_network }
+    - { role: host_smb, tags: host_smb }
+    - { role: host_base, tags: host_base }
 
 # no gather_facts: the guest may not exist yet — the role creates it
 - name: Clone Windows guests from the golden image (per inventory)
   hosts: acu
   gather_facts: false
   roles:
-    - { role: vm_clone, tags: vm }
+    - { role: acumatica_vm, tags: acumatica_vm }
 
 - name: Acumatica instances — data disk + SQL Server + Acumatica installer
   hosts: acu
   gather_facts: true
   roles:
-    - { role: mssql, tags: mssql }
-    - { role: acumatica, tags: acumatica }
+    - { role: acumatica_mssql, tags: acumatica_mssql }
+    - { role: acumatica_erp, tags: acumatica_erp }
 
 # no gather_facts: the guest may not exist yet — the role creates it
 - name: Create the MailPilot Linux guest on kronos
   hosts: mailpilot
   gather_facts: false
   roles:
-    - { role: linux_vm, tags: vm }
+    - { role: mailpilot_vm, tags: mailpilot_vm }
 
 - name: Configure the MailPilot guest — OS, data disk, Postgres, operator tooling
   hosts: mailpilot
   gather_facts: true
   roles:
-    - { role: tools, tags: tools }
-    - { role: github_cli, tags: github_cli }
-    - { role: google_cli, tags: google_cli }
-    - role: gpg
-      tags: gpg
+    - { role: mailpilot_tools, tags: mailpilot_tools }
+    - { role: mailpilot_github_cli, tags: mailpilot_github_cli }
+    - { role: mailpilot_google_cli, tags: mailpilot_google_cli }
+    - role: mailpilot_gpg
+      tags: mailpilot_gpg
       when: gpg_signing_key is defined
-    - { role: tailscale, tags: tailscale }
-    - { role: postgresql, tags: postgresql }
-    - { role: nodejs, tags: nodejs }
-    - { role: claude_code, tags: claude_code }
-    - { role: firecrawl_cli, tags: firecrawl_cli }
-    - { role: googleworkspace_cli, tags: googleworkspace_cli }
+    - { role: mailpilot_tailscale, tags: mailpilot_tailscale }
+    - { role: mailpilot_postgresql, tags: mailpilot_postgresql }
+    - { role: mailpilot_nodejs, tags: mailpilot_nodejs }
+    - { role: mailpilot_claude_code, tags: mailpilot_claude_code }
+    - { role: mailpilot_firecrawl_cli, tags: mailpilot_firecrawl_cli }
+    - { role: mailpilot_googleworkspace_cli, tags: mailpilot_googleworkspace_cli }
 
 - name: Deploy the MailPilot application
   hosts: mailpilot
   gather_facts: true
   roles:
-    - { role: mailpilot, tags: mailpilot }
+    - { role: mailpilot_crm, tags: mailpilot_crm }

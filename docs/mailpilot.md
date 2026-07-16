@@ -21,7 +21,7 @@ from `vm_admin_ssh_key_file` (`group_vars/mailpilot.yml`).
 
 ## Commands
 
-- `make mailpilot-vm LIMIT=mailpilot-1` — create/boot the guest (linux_vm + network roles).
+- `make mailpilot-vm LIMIT=mailpilot-1` — create/boot the guest (mailpilot_vm + host_network roles).
 - `make mailpilot-config LIMIT=mailpilot-1` — configure the guest: OS tools, operator
   CLIs, ext4 data disk + PostgreSQL 18, optional Tailscale.
 - `make mailpilot-release [version=X.Y.Z]` — install/upgrade `mailpilot-crm` and
@@ -29,7 +29,7 @@ from `vm_admin_ssh_key_file` (`group_vars/mailpilot.yml`).
 - `make mailpilot-stats` — SSH (22) reachability + `systemctl is-active` +
   `mailpilot --version` + recent journal.
 - `make site LIMIT=mailpilot-1` — all three in one pass.
-- Single guest roles: `make postgresql LIMIT=mailpilot-1`, `make tools ...`, etc.
+- Single guest roles: `make mailpilot-postgresql LIMIT=mailpilot-1`, `make mailpilot-tools ...`, etc.
 
 Add an instance by adding a host to the `mailpilot` group in
 `ansible/inventory/hosts.yml` with a free IP on the VM subnet, then
@@ -47,15 +47,15 @@ operator CLIs are installed but unauthenticated). Supplied via
 | pass key | consumed by |
 | --- | --- |
 | `TAILSCALE_AUTH_KEY` | tailscale (join the tailnet) |
-| `POSTGRESQL_REMOTE_PASSWORD` | postgresql (`pilot` remote role) |
-| `POSTGRESQL_READONLY_PASSWORD` | postgresql (`reporter` read-only role) |
+| `POSTGRESQL_REMOTE_PASSWORD` | mailpilot_postgresql (`pilot` remote role) |
+| `POSTGRESQL_READONLY_PASSWORD` | mailpilot_postgresql (`reporter` read-only role) |
 | `LOGFIRE_READ_TOKEN` | claude_code (guest `logfire` CLI auth) |
 | `ANTHROPIC_API_KEY` | tools (vim-claude, operator use) |
 | `FIRECRAWL_API_KEY` | firecrawl_cli |
 
-Git commit signing (`gpg` role) is off unless a key is passed explicitly:
+Git commit signing (`mailpilot_gpg` role) is off unless a key is passed explicitly:
 
-    cd ansible && ansible-playbook site.yml --tags gpg -l mailpilot-1 \
+    cd ansible && ansible-playbook site.yml --tags mailpilot_gpg -l mailpilot-1 \
       -e gpg_signing_key=/path/to/signing.key -e gpg_user=ubuntu
 
 ## Post-deploy: application configuration

@@ -1,0 +1,46 @@
+---
+# VM disks are zvols under {{ vm_zvol_parent }} — cloning a golden
+# VM is `zfs snapshot` + `zfs clone`, no data copy. Libvirt uses the raw
+# /dev/zvol/... block devices directly; no libvirt storage pool required.
+
+- name: Parent dataset for VM zvols
+  community.general.zfs:
+    name: "{{ vm_zvol_parent }}"
+    state: present
+    extra_zfs_properties:
+      mountpoint: none
+
+- name: Distr dataset (SMB-shared ISO images / installers)
+  community.general.zfs:
+    name: "{{ distr_dataset }}"
+    state: present
+    extra_zfs_properties:
+      mountpoint: "{{ distr_mount }}"
+
+- name: Parent dataset for backups
+  community.general.zfs:
+    name: upool/backups
+    state: present
+    extra_zfs_properties:
+      mountpoint: none
+
+- name: MSSQL backup dataset
+  community.general.zfs:
+    name: "{{ mssql_backup_dataset }}"
+    state: present
+    extra_zfs_properties:
+      mountpoint: "{{ mssql_backup_mount }}"
+      compression: zstd
+
+# Snapshot scheduling lives in the host_sanoid role — remove the retired zfs-snap
+# cron scheme. Its auto-* snapshots stay (sanoid prunes only its own
+# autosnap_*); destroy them manually once sanoid has built up its history.
+- name: Remove the retired zfs-snap script and cron entries (sanoid replaces them)
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /usr/local/sbin/zfs-snap
+    - /usr/local/sbin/zfs-snap-backups
+    - /etc/cron.d/zfs-snap-mssql-backups
+    - /etc/cron.d/zfs-snap-vms

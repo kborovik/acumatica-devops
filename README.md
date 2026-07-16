@@ -44,7 +44,7 @@ The lab resolves it to a Tailscale MagicDNS name. Host runs Ubuntu 26.04 LTS.
 - Use `sudo -n` for privileged steps. Both `kb` and `sysop` have passwordless
   sudo (`/etc/sudoers.d/90-nopasswd`).
 - `sysop` (uid 1000) is the break-glass admin account only. Root SSH is disabled.
-- kb's login shell is **fish** (via the `fish_shell` role). `ssh <host> '<cmd>'`
+- kb's login shell is **fish** (via the `host_base` role). `ssh <host> '<cmd>'`
   is interpreted by fish. POSIX-isms fail — `x=y` assignments, `$(...)` in double
   quotes, or a stray `$` (for example in a sed/awk script). For POSIX syntax run
   `ssh <host> bash -c '...'`.
@@ -119,32 +119,35 @@ Golden-image build, instance internals, and Tailscale access are documented in
 `site.yml` runs the Ubuntu Linux host stack, then the Windows guests, then the
 MailPilot guests. Roles in order:
 
-- **kvm** — hypervisor plus `win-vm-create`, `win-vm-rm`, and `qga-exec` helper
-  scripts. Golden-image build, teardown, guest-agent rescue.
-- **storage** — ZFS datasets.
-- **sanoid** — snapshot schedules: daily atomic recursive snapshot of the VM
+- **host_kvm** — hypervisor plus `win-vm-create`, `win-vm-rm`, and `qga-exec`
+  helper scripts. Golden-image build, teardown, guest-agent rescue.
+- **host_storage** — ZFS datasets.
+- **host_sanoid** — snapshot schedules: daily atomic recursive snapshot of the VM
   zvols and daily snapshot of the MSSQL backup dataset (`sanoid.timer`).
-- **network** — libvirt NAT, static DHCP leases, Tailscale subnet router,
+- **host_network** — libvirt NAT, static DHCP leases, Tailscale subnet router,
   split-DNS dnsmasq. VMs resolve as `<vm>.vm.internal` on the tailnet.
-- **fileserver** — SMB shares over `/upool`: `distr`, `mssql-backups`.
-- **vm_clone** — inventory-driven guest provisioning. An `acu` host with `vm_ip`
-  gets a derived MAC, a ZFS clone of `ws2025-base`, and a first-boot rename.
-  `make acumatica-vm LIMIT=<vm>`.
-- **mssql** — per-instance Windows layer: a data-disk zvol plus unattended SQL
-  Server. Runs against inventory group `acu` over SSH to Administrator
-  (`ansible_shell_type: powershell`); host-side steps delegate to the host.
-  `make acumatica-config LIMIT=<vm>`.
-- **acumatica** — Acumatica ERP: installer MSI from the distr share into the
+- **host_smb** — SMB shares over `/upool`: `distr`, `mssql-backups`.
+- **host_base** — base host config for kb (fish shell).
+- **acumatica_vm** — inventory-driven guest provisioning. An `acu` host with
+  `vm_ip` gets a derived MAC, a ZFS clone of `ws2025-base`, and a first-boot
+  rename. `make acumatica-vm LIMIT=<vm>`.
+- **acumatica_mssql** — per-instance Windows layer: a data-disk zvol plus
+  unattended SQL Server. Runs against inventory group `acu` over SSH to
+  Administrator (`ansible_shell_type: powershell`); host-side steps delegate to
+  the host. `make acumatica-config LIMIT=<vm>`.
+- **acumatica_erp** — Acumatica ERP: installer MSI from the distr share into the
   guest, then IIS plus `ac.exe` instance deployment. Produces AcumaticaDB and a
   site at `http://<vm>/AcumaticaERP`. `make acumatica-release LIMIT=<vm>`.
-- **fish_shell** — fish config for kb.
-- **linux_vm** — inventory-driven Ubuntu guest provisioning (group `mailpilot`):
-  OS zvol written from the cloud image, a data zvol, a cloud-init NoCloud seed
-  (hostname + `ubuntu` SSH key + static IP), then `virt-install --import`.
-- **postgresql** — ext4 on the guest data disk (vdb) mounted at
+- **mailpilot_vm** — inventory-driven Ubuntu guest provisioning (group
+  `mailpilot`): OS zvol written from the cloud image, a data zvol, a cloud-init
+  NoCloud seed (hostname + `ubuntu` SSH key + static IP), then
+  `virt-install --import`.
+- **mailpilot_postgresql** — ext4 on the guest data disk (vdb) mounted at
   `/var/lib/postgresql`, then PostgreSQL 18 from pgdg; optional `pilot` remote
   and `reporter` read-only roles.
-- **tools / github_cli / google_cli / gpg / tailscale / nodejs / claude_code /
-  firecrawl_cli / googleworkspace_cli** — MailPilot guest OS + operator tooling.
-- **mailpilot** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
+- **mailpilot_tools / mailpilot_github_cli / mailpilot_google_cli /
+  mailpilot_gpg / mailpilot_tailscale / mailpilot_nodejs / mailpilot_claude_code
+  / mailpilot_firecrawl_cli / mailpilot_googleworkspace_cli** — MailPilot guest
+  OS + operator tooling.
+- **mailpilot_crm** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
   user, database bootstrap, `mailpilot.service`. `make mailpilot-release`.

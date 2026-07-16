@@ -1,0 +1,64 @@
+---
+# Inventory-driven VM provisioning: clone the golden image into this
+# instance's domain with the MAC from group_vars/acu.yml (derived from
+# vm_ip), so the static DHCP lease and vm.internal DNS record set up by the
+# host_network role match on first boot. Then start it, wait for the baked-in
+# OpenSSH, and rename the guest to its inventory name (a prerequisite of
+# the acumatica_mssql role — SQL Server records the machine name at install time).
+
+- name: Clone on kronos (zfs clone of the golden image, fixed MAC)
+  delegate_to: kronos
+  become: true
+  block:
+    - name: Check the domain exists
+      ansible.builtin.command: virsh dominfo {{ inventory_hostname }}
+      register: dom_check
+      failed_when: false
+      changed_when: false
+      check_mode: false # read-only probe; later conditionals need its output
+
+    - name: Create the clone (golden is shut off; instant ZFS clone, no copy)
+      when: dom_check.rc != 0
+      block:
+        - name: Assert the golden image is shut off
+          ansible.builtin.command: virsh domstate {{ vm_golden_image }}
+          register: golden_state
+          changed_when: false
+          failed_when: golden_state.stdout != "shut off"
+
+        - name: Snapshot the golden zvol as @{{ inventory_hostname }}
+          community.general.zfs:
+            name: "{{ vm_zvol_parent }}/{{ vm_golden_image }}@{{ inventory_hostname }}"
+            state: present
+
+        - name: Clone the snapshot into this instance's zvol
+          community.general.zfs:
+            name: "{{ vm_zvol_parent }}/{{ inventory_hostname }}"
+            origin: "{{ vm_zvol_parent }}/{{ vm_golden_image }}@{{ inventory_hostname }}"
+            state: present
+
+        - name: Register the libvirt domain on the clone (fresh UUID, fixed MAC)
+          ansible.builtin.command: >-
+            virt-clone --original {{ vm_golden_image }}
+            --name {{ inventory_hostname }} --preserve-data
+            --file /dev/zvol/{{ vm_zvol_parent }}/{{ inventory_hostname }}
+            --mac {{ vm_mac }}
+          changed_when: true
+
+    - name: Ensure the VM is running
+      community.libvirt.virt:
+        name: "{{ inventory_hostname }}"
+        state: running
+
+- name: Wait for guest SSH (first boot of a fresh clone takes a while)
+  ansible.builtin.wait_for_connection:
+    timeout: 900
+
+- name: Rename guest to its inventory name
+  ansible.windows.win_hostname:
+    name: "{{ inventory_hostname }}"
+  register: vm_rename
+
+- name: Reboot to apply the rename
+  ansible.windows.win_reboot:
+  when: vm_rename.reboot_required | default(false)

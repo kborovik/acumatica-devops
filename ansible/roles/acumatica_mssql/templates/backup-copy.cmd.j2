@@ -1,0 +1,13 @@
+@echo off
+REM Managed by Ansible (roles/acumatica_mssql) — SQL Agent job "{{ mssql_backup_job_name }}", step 2.
+REM Copies the local .bak dumps to the mssql-backups SMB share, authenticating as
+REM {{ smb_backup_user }} (the engine's own account can't reach the share). robocopy
+REM exit codes 0-7 are success; >=8 is a real failure.
+setlocal
+set "SHARE=\\{{ mssql_backup_smb_host }}\mssql-backups"
+net use "%SHARE%" /user:{{ smb_backup_user }} "{{ svc_backup_password }}" >nul 2>&1
+robocopy "{{ mssql_backup_local_dir }}" "%SHARE%\{{ inventory_hostname }}" *.bak /R:2 /W:5 /NP /NJH /NJS /NDL >nul
+set RC=%ERRORLEVEL%
+net use "%SHARE%" /delete /y >nul 2>&1
+if %RC% GEQ 8 exit /b 1
+exit /b 0

@@ -53,12 +53,12 @@ Instances are **inventory-driven**: add the VM under the `acu` group in
     make site                          # everything: clone -> rename -> mssql -> acumatica
     make acumatica-vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
 
-The `vm_clone` play (delegating host steps to the Ubuntu Linux host) per instance:
+The `acumatica_vm` play (delegating host steps to the Ubuntu Linux host) per instance:
 
 - derives a stable MAC from `vm_ip`'s last octet (`52:54:00:7a:00:xx`;
   override with `vm_mac` — acu-dev1 keeps its pre-derivation MAC this way),
   so the static DHCP lease and the `<name>.vm.internal` DNS record from the
-  `network` role are registered **before the VM first boots**;
+  `host_network` role are registered **before the VM first boots**;
 - if the domain doesn't exist, snapshots and `zfs clone`s the golden zvol into
   `upool/vms/<name>` (instant, no copy), then `virt-clone --preserve-data`
   registers a libvirt domain on it (fresh UUID, the derived MAC) — all native
@@ -69,11 +69,11 @@ The `vm_clone` play (delegating host steps to the Ubuntu Linux host) per instanc
 Each clone gets its own zvol (`upool/vms/acu-tst1`, a clone of
 `upool/vms/ws2025-base@acu-tst1`). No sysprep, so the clone boots straight
 to the login screen, SSH/RDP reachable with the golden image's credentials.
-The rename happens **before the mssql role installs SQL Server** (the
+The rename happens **before the acumatica_mssql role installs SQL Server** (the
 machine name is recorded at install time; renaming afterwards needs
 `sp_dropserver`/`sp_addserver`) — the role asserts this.
 Installers (Acumatica MSI, SQL Server ISO, …) are on the `\\<host>\distr`
-share (dataset `upool/distr`, `fileserver` role): `installers/` for
+share (dataset `upool/distr`, `host_smb` role): `installers/` for
 application setups, `iso/` for OS/driver images. Credentials: user
 `svc-distr`, password in `/root/svc-distr.smbpasswd` on the host.
 Remove an instance with `sudo win-vm-rm acu-dev1 --yes` (the golden zvol
@@ -81,7 +81,7 @@ cannot be removed while clones depend on it).
 
 ### Data disk + SQL Server (ansible)
 
-The `mssql` role provisions the data disk and SQL Server (guests are
+The `acumatica_mssql` role provisions the data disk and SQL Server (guests are
 ansible-managed over SSH — inventory group `acu`, connection vars in
 `group_vars/acu.yml`). It runs as part of `make site`; for one instance:
 
@@ -112,7 +112,7 @@ manually once you are sure the data is disposable.
 
 ### Acumatica (ansible)
 
-The `acumatica` role installs the Acumatica ERP MSI and deploys the
+The `acumatica_erp` role installs the Acumatica ERP MSI and deploys the
 application instance in one pass:
 
     make acumatica-release LIMIT=acu-dev1
@@ -139,12 +139,12 @@ IIS app and the database, then re-running the role.
 ### Access over Tailscale
 
 The Ubuntu Linux host is a Tailscale **subnet router** for the VM network
-(192.168.122.0/24, `network` role) — any tailnet device reaches VMs directly:
+(192.168.122.0/24, `host_network` role) — any tailnet device reaches VMs directly:
 RDP to `192.168.122.x`, browse Acumatica on `http://192.168.122.x`, etc. The
 advertised route needs a **one-time approval** in the Tailscale admin console
 (Machines → the host → route settings).
 
-Stable IPs come from the inventory (`vm_ip` per host — the `network` role
+Stable IPs come from the inventory (`vm_ip` per host — the `host_network` role
 turns them into static DHCP leases and DNS records). Fallback without the
 approved route: `ssh -L 3389:<vm-ip>:3389 <host>`.
 

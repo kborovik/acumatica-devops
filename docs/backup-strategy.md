@@ -1,7 +1,7 @@
 # Acumatica backup strategy
 
 Two independent layers protect each Acumatica instance. Both are provisioned by
-Ansible (the `mssql`, `storage`, and `sanoid` roles) and run unattended —
+Ansible (the `acumatica_mssql`, `host_storage`, and `host_sanoid` roles) and run unattended —
 nothing here is a manual routine. `<host>` is the Ubuntu Linux host (substitute
 your `~/.ssh/config` alias); all zvols live in pool `upool`.
 
@@ -30,7 +30,7 @@ that snapshot always captures a complete set of `.bak` files.
 
 ## Layer 1 — SQL-native backups
 
-Provisioned by the `mssql` role (`--tags mssql_backup`). Each instance has a
+Provisioned by the `acumatica_mssql` role (`--tags mssql_backup`). Each instance has a
 dedicated **backup disk** — a third virtio zvol `upool/vms/<name>-backup`,
 formatted `E:` — as the local backup target. The SQL Agent job **"Backup user
 databases"** runs nightly at 02:00 (`mssql_backup_hour`) in two steps:
@@ -70,7 +70,7 @@ Recover an older copy by pointing `FROM DISK` at the share's
 
 ## Layer 2 — ZFS zvol snapshots
 
-Provisioned by the `storage` (datasets) and `sanoid` (schedule) roles. Each
+Provisioned by the `host_storage` (datasets) and `host_sanoid` (schedule) roles. Each
 VM's disks are separate sibling zvols:
 
 - `upool/vms/<name>` — OS disk (`C:`, a `zfs clone` of the golden image)
@@ -111,16 +111,16 @@ total pool or host loss takes all of it. There is no off-host or off-site copy.
 If that changes, sanoid's `autosnap_*` snapshots are ready to feed `syncoid`
 (sanoid's replication companion — replicate `upool/vms` and
 `upool/backups/mssql` to a second box); only the syncoid schedule would need
-adding to the [sanoid role](../ansible/roles/sanoid/).
+adding to the [host_sanoid role](../ansible/roles/host_sanoid/).
 
 ## Configuration knobs
 
 | Variable | Default | Where | Controls |
 |----------|---------|-------|----------|
-| `mssql_backup_hour` | `2` | `roles/mssql/defaults/main.yml` | SQL Agent job start hour |
-| `mssql_backup_disk_size` | `50G` | `roles/mssql/defaults/main.yml` | Local `E:` backup zvol size (sparse) |
+| `mssql_backup_hour` | `2` | `roles/acumatica_mssql/defaults/main.yml` | SQL Agent job start hour |
+| `mssql_backup_disk_size` | `50G` | `roles/acumatica_mssql/defaults/main.yml` | Local `E:` backup zvol size (sparse) |
 | `backup_snap_keep` | `14` | `group_vars/all.yml` | Daily snapshots kept of the backup share |
 | `vm_snap_keep` | `14` | `group_vars/all.yml` | Daily recursive snapshots kept of `upool/vms` |
 
 Snapshot times (03:15 / 03:30) are `daily_hour`/`daily_min` in
-`roles/sanoid/templates/sanoid.conf.j2`.
+`roles/host_sanoid/templates/sanoid.conf.j2`.
