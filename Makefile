@@ -19,7 +19,7 @@ pass_namespace := mailpilot-devops
         host-base host-kvm host-storage host-network host-smb \
         linux-unattended-upgrades \
         acumatica-vm acumatica-config acumatica-release acumatica-status \
-        mailpilot-vm mailpilot-config mailpilot-release mailpilot-stats \
+        mailpilot-vm mailpilot-config mailpilot-release mailpilot-status \
         mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli \
         mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code \
         mailpilot-firecrawl-cli \
@@ -50,6 +50,21 @@ endef
 define tags
 cd ansible
 $(PLAYBOOK) --tags $(1)
+endef
+
+# $(call status_check,<group>,<ports>) — TCP reachability of a group's hosts.
+# One ansible-inventory query yields host+IP (honors LIMIT via -l); each port
+# gets a 1s nc connect probe. Pure reachability — no SSH login, never blocks on
+# a down host. Darwin nc caps the connect with -G (its -w is idle-only); other
+# platforms use -w.
+define status_check
+cd ansible
+nct=$$([ "$$(uname -s)" = Darwin ] && echo -G1 || echo -w1)
+ansible-inventory --list $(LIMIT_ARG) 2>/dev/null | jq -r '._meta.hostvars as $$hv | (.$(1).hosts // [])[] | "\(.) \($$hv[.].vm_ip)"' | while read -r h ip; do
+for p in $(2); do
+nc -z $$nct $$ip $$p 2>/dev/null && echo "$$h ($$ip:$$p) open" || echo "$$h ($$ip:$$p) closed"
+done
+done
 endef
 
 ###############################################################################
@@ -146,13 +161,7 @@ acumatica-release: ## install the Acumatica ERP MSI + IIS/ac.exe instance (LIMIT
 	$(PLAYBOOK) --tags acumatica_erp $(LIMIT_ARG)
 
 acumatica-status: ## acu VM reachability — SSH (22) + IIS (80) port checks
-	cd ansible
-	for h in $$(ansible acu $(LIMIT_ARG) --list-hosts 2>/dev/null | tail -n +2); do
-	  ip=$$(ansible-inventory --host $$h 2>/dev/null | jq -r '.vm_ip')
-	  for p in 22 80; do
-	    nc -z -w2 $$ip $$p 2>/dev/null && echo "$$h ($$ip:$$p) open" || echo "$$h ($$ip:$$p) closed"
-	  done
-	done
+	$(call status_check,acu,22 80)
 
 ###############################################################################
 # MailPilot guests (group mailpilot)
@@ -177,13 +186,8 @@ mailpilot-release: ## install/upgrade mailpilot-crm + (re)start the service [ver
 	$(call header,Deploy mailpilot-crm==$$v)
 	$(PLAYBOOK) --tags mailpilot_crm $(LIMIT_ARG) --extra-vars "mailpilot_version=$$v"
 
-mailpilot-stats: ## MailPilot service status + SSH (22) reachability
-	cd ansible
-	for h in $$(ansible mailpilot $(LIMIT_ARG) --list-hosts 2>/dev/null | tail -n +2); do
-	  ip=$$(ansible-inventory --host $$h 2>/dev/null | jq -r '.vm_ip')
-	  nc -z -w2 $$ip 22 2>/dev/null && echo "$$h ($$ip:22) open" || echo "$$h ($$ip:22) closed"
-	done
-	ansible mailpilot $(LIMIT_ARG) -m shell -a "systemctl is-active mailpilot.service; echo '---'; mailpilot --version; echo '---'; journalctl -u mailpilot --no-pager -n 5"
+mailpilot-status: ## mailpilot VM reachability — SSH (22) port check
+	$(call status_check,mailpilot,22)
 
 # Single-role convenience targets for the mailpilot guests (secrets threaded).
 # The tag is the target name with hyphens flipped to underscores, matching the
