@@ -117,6 +117,8 @@
 
 # Migrate objects from a prior dedicated service role (e.g. "mailpilot") so the
 # interactive user owns the schema after a re-point of mailpilot_user.
+# Skip predefined roles: PG15+ owns public as pg_database_owner, and REASSIGN
+# OWNED BY that role fails ("required by the database system").
 - name: Reassign objects from prior public-schema owner to {{ mailpilot_user }}
   ansible.builtin.command:
     cmd: >-
@@ -127,6 +129,7 @@
   when:
     - public_schema_owner.stdout | length > 0
     - public_schema_owner.stdout != mailpilot_user
+    - not public_schema_owner.stdout.startswith('pg_')
 
 - name: Grant {{ mailpilot_user }} ownership of public schema in mailpilot database
   ansible.builtin.command:
