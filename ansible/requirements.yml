@@ -1,8 +1,11 @@
 ---
 # ansible-galaxy collection install -r requirements.yml
+# ansible.posix ≥2.2 drops ansible.module_utils._text imports and exit_json
+# warnings= that ansible-core 2.21+ flags as deprecations (sysctl, mount).
 collections:
   - name: community.general # zfs, kronos host roles, filesystem/npm (guest roles)
   - name: community.libvirt # virt_net (network), virt (vm_clone, linux_vm)
   - name: ansible.posix # sysctl (network, tools), mount (postgresql data disk)
+    version: '>=2.2.0'
   - name: ansible.windows # win_* basics for the acu guests
   - name: community.windows # win_partition / win_format / win_firewall_rule

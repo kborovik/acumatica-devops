@@ -21,19 +21,19 @@ from `vm_admin_ssh_key_file` (`group_vars/mailpilot.yml`).
 
 ## Commands
 
-- `make mailpilot-vm LIMIT=mailpilot-1` — create/boot the guest (mailpilot_vm + host_network roles).
-- `make mailpilot-config LIMIT=mailpilot-1` — configure the guest: OS tools, operator
+- `gmake mailpilot-vm LIMIT=mailpilot-1` — create/boot the guest (mailpilot_vm + host_network roles).
+- `gmake mailpilot-config LIMIT=mailpilot-1` — configure the guest: OS tools, operator
   CLIs, ext4 data disk + PostgreSQL 18, optional Tailscale.
-- `make mailpilot-release [version=X.Y.Z]` — install/upgrade `mailpilot-crm` and
+- `gmake mailpilot-release [version=X.Y.Z]` — install/upgrade `mailpilot-crm` and
   (re)start the service. Without `version`, the latest PyPI release is used.
-- `make mailpilot-stats` — SSH (22) reachability + `systemctl is-active` +
+- `gmake mailpilot-stats` — SSH (22) reachability + `systemctl is-active` +
   `mailpilot --version` + recent journal.
-- `make site LIMIT=mailpilot-1` — all three in one pass.
-- Single guest roles: `make mailpilot-postgresql LIMIT=mailpilot-1`, `make mailpilot-tools ...`, etc.
+- `gmake site LIMIT=mailpilot-1` — all three in one pass.
+- Single guest roles: `gmake mailpilot-postgresql LIMIT=mailpilot-1`, `gmake mailpilot-tools ...`, etc.
 
 Add an instance by adding a host to the `mailpilot` group in
 `ansible/inventory/hosts.yml` with a free IP on the VM subnet, then
-`make site LIMIT=<name>`.
+`gmake site LIMIT=<name>`.
 
 ## Secrets
 
@@ -42,7 +42,7 @@ value (Postgres stays localhost-only, the guest does not join Tailscale,
 operator CLIs are installed but unauthenticated). Supplied via
 [`pass(1)`](https://www.passwordstore.org/) under the namespace set by
 `pass_namespace` in the Makefile (default `mailpilot-devops`; override with
-`make mailpilot-config pass_namespace=<ns>`):
+`gmake mailpilot-config pass_namespace=<ns>`):
 
 | pass key | consumed by |
 | --- | --- |

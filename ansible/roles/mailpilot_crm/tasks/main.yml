@@ -19,17 +19,12 @@
     system: true
     create_home: true
 
-- name: Install uv for the mailpilot user
-  ansible.builtin.shell:
-    cmd: set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | sh
-    executable: /bin/bash
-    creates: '{{ mailpilot_home }}/.local/bin/uv'
-  become: true
-  become_user: '{{ mailpilot_user }}'
-
+# uv is the OS-global tool from the linux_uv role ({{ uv_install_dir }}/uv); the
+# python/tool installs still run as the mailpilot user, so they land in that
+# user's env ({{ mailpilot_home }}/.local/share/uv + .local/bin).
 - name: Install Python {{ uv_python_version }} via uv
   ansible.builtin.command:
-    cmd: '{{ mailpilot_home }}/.local/bin/uv python install {{ uv_python_version }}'
+    cmd: '{{ uv_install_dir }}/uv python install {{ uv_python_version }}'
   become: true
   become_user: '{{ mailpilot_user }}'
   register: uv_python_install
@@ -38,7 +33,7 @@
 - name: Install mailpilot v{{ mailpilot_version }} from PyPI
   ansible.builtin.command:
     cmd: >-
-      {{ mailpilot_home }}/.local/bin/uv tool install
+      {{ uv_install_dir }}/uv tool install
       --python {{ uv_python_version }}
       --upgrade
       {{ mailpilot_package }}=={{ mailpilot_version }}
@@ -65,6 +60,15 @@
     dest: /usr/local/bin/mailpilot
     state: link
     force: true
+
+# The service-user home is created 0750 (login.defs HOME_MODE), which blocks
+# other users from traversing it — so the /usr/local/bin/mailpilot symlink above
+# is unusable for e.g. the ubuntu operator (fish: "not an executable file").
+# 0751 grants traverse (not listing) so the CLI on PATH resolves for everyone.
+- name: Allow operators to reach the mailpilot CLI (traverse the service home)
+  ansible.builtin.file:
+    path: '{{ mailpilot_home }}'
+    mode: '0751'
 
 - name: Ensure PostgreSQL cluster is started
   ansible.builtin.command:

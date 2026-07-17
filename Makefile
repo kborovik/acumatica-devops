@@ -1,3 +1,11 @@
+# .ONESHELL needs GNU Make ≥ 3.82. macOS ships 3.81 (/usr/bin/make); without
+# oneshell each recipe line is a separate shell and multi-line macros such as
+# resolve_version / load_secrets lose their state (empty mailpilot version).
+# On macOS use Homebrew's gmake: brew install make && gmake <target>
+ifeq ($(filter oneshell,$(.FEATURES)),)
+$(error GNU Make ≥ 3.82 required (this is $(MAKE_VERSION) from $(MAKE)). On macOS: brew install make && gmake <target>)
+endif
+
 .ONESHELL:
 .SILENT:
 
@@ -12,12 +20,12 @@ LIMIT_ARG = $(if $(LIMIT),-l $(LIMIT),)
 comma := ,
 
 # pass(1) namespace for mailpilot deploy-time secrets (all optional; empty is
-# tolerated). Override per-invocation: make mailpilot-config pass_namespace=<ns>
+# tolerated). Override per-invocation: gmake mailpilot-config pass_namespace=<ns>
 pass_namespace := mailpilot-devops
 
 .PHONY: default help site lint deps ping \
         host-base host-kvm host-storage host-network host-smb \
-        linux-unattended-upgrades \
+        linux-unattended-upgrades linux-uv \
         acumatica-vm acumatica-config acumatica-release acumatica-status \
         mailpilot-vm mailpilot-config mailpilot-release mailpilot-status \
         mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli \
@@ -83,7 +91,7 @@ endef
 default: help
 
 help:
-	echo "$(blue)Usage: $(green)make [recipe] [LIMIT=<host>]$(reset)"
+	echo "$(blue)Usage: $(green)gmake [recipe] [LIMIT=<host>]$(reset)"
 	echo "$(blue)Recipes:$(reset)"
 	awk 'BEGIN {FS = ":.*?## "; sort_cmd = "sort"} /^[a-zA-Z0-9_-]+:.*?## / \
 	{ printf "  \033[33m%-20s\033[0m %s\n", $$1, $$2 | sort_cmd; } \
@@ -110,7 +118,7 @@ ping: ## ansible connectivity test (LIMIT=mailpilot for the guests)
 
 deps:
 	cd ansible
-	ansible-galaxy collection install -r requirements.yml
+	ansible-galaxy collection install -r requirements.yml --upgrade
 
 ###############################################################################
 # kronos host roles
@@ -139,6 +147,9 @@ host-smb: ## SMB shares over /upool (distr, mssql-backups)
 # the mailpilot config plays, so this applies to every Linux instance at once.
 linux-unattended-upgrades: ## automatic apt upgrades + auto-reboot on all Linux instances
 	$(call tags,linux_unattended_upgrades)
+
+linux-uv: ## install uv (astral) OS-global on all Linux instances
+	$(call tags,linux_uv)
 
 ###############################################################################
 # Acumatica instances (group acu)
@@ -192,7 +203,7 @@ mailpilot-status: ## mailpilot VM reachability — SSH (22) port check
 # Single-role convenience targets for the mailpilot guests (secrets threaded).
 # The tag is the target name with hyphens flipped to underscores, matching the
 # role/tag names in site.yml:
-#   make mailpilot-tools | mailpilot-postgresql | mailpilot-nodejs |
+#   gmake mailpilot-tools | mailpilot-postgresql | mailpilot-nodejs |
 #        mailpilot-github-cli | mailpilot-google-cli | mailpilot-tailscale |
 #        mailpilot-claude-code | mailpilot-firecrawl-cli   [LIMIT=mailpilot-1]
 mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code mailpilot-firecrawl-cli:
@@ -204,15 +215,15 @@ mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailp
 # Release
 ###############################################################################
 
-# `make release <part>` passes the part as an extra goal; pick it out and give
+# `gmake release <part>` passes the part as an extra goal; pick it out and give
 # the part words no-op recipes so make does not try to build them. There is no
 # version manifest in this repo — the version lives in the git tag, and the next
 # one is bumped from the latest `v*` tag.
 part := $(word 1,$(filter major minor patch,$(MAKECMDGOALS)))
 
-release: ## tag + publish a GitHub release (make release major|minor|patch)
+release: ## tag + publish a GitHub release (gmake release major|minor|patch)
 	set -e
-	test -n "$(part)" || { echo "usage: make release major|minor|patch"; exit 1; }
+	test -n "$(part)" || { echo "usage: gmake release major|minor|patch"; exit 1; }
 	git diff --quiet && git diff --cached --quiet \
 		|| { echo "working tree not clean — commit or stash first"; exit 1; }
 	cur=$$(git describe --tags --match 'v*' --abbrev=0 2>/dev/null || echo v0.0.0)

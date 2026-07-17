@@ -32,6 +32,9 @@ smb_backup_user: svc-backup
 iso_dir: '{{ distr_mount }}/iso' # OS / driver ISOs used by win-vm-create
 virtio_win_iso: '{{ iso_dir }}/virtio-win-0.1.285.iso'
 
+# --- linux_uv: uv (astral) OS-global on every Linux instance ------------------
+uv_install_dir: /usr/local/bin # on the default PATH → uv/uvx for all users
+
 # --- mailpilot guests: Ubuntu cloud image (mailpilot_vm role) ----------------------
 # Ubuntu 26.04 LTS "Resolute Raccoon" (matches the kronos host). The codename
 # also keys the third-party apt repos in the postgresql and tailscale roles, so

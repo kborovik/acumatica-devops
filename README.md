@@ -29,11 +29,14 @@ runner such as a self-hosted GitHub Actions runner. You need:
 - SSH access to the Ubuntu Linux host — see [Remote host](#remote-host).
 - Ansible installed locally (for example `brew install ansible` on macOS, or
   `pipx install ansible` / your distro's package on Linux).
-- Collection dependencies: `make deps` (runs `ansible-galaxy collection install`).
+- **GNU Make ≥ 3.82** — the Makefile uses `.ONESHELL`. On macOS use Homebrew's
+  `gmake` (`brew install make`); `/usr/bin/make` is 3.81 and will fail the guard.
+  Elsewhere plain `make` is fine when it is GNU Make.
+- Collection dependencies: `gmake deps` (runs `ansible-galaxy collection install`).
 
 Confirm connectivity before applying anything:
 
-    make ping        # ansible <host> -m ping
+    gmake ping        # ansible <host> -m ping
 
 ## Remote host
 
@@ -64,29 +67,31 @@ Pool is `upool`. Datasets:
 
 ## Everyday commands
 
-All targets wrap `ansible-playbook site.yml`. Run from the repo root.
+All targets wrap `ansible-playbook site.yml`. Run from the repo root
+(use `gmake` on macOS — see Prerequisites).
 
-- `make site` — apply the full stack: the Ubuntu Linux host, every `acu`
+- `gmake site` — apply the full stack: the Ubuntu Linux host, every `acu`
   instance, and every `mailpilot` guest.
-- `make ping` — Ansible connectivity test against the Ubuntu Linux host
+- `gmake ping` — Ansible connectivity test against the Ubuntu Linux host
   (`LIMIT=mailpilot` for the guests).
-- `make lint` — `ansible-lint` over the ansible tree.
-- `make deps` — install collection dependencies.
-- `make help` — list all targets.
+- `gmake lint` — `ansible-lint` over the ansible tree.
+- `gmake deps` — install collection dependencies.
+- `gmake help` — list all targets.
 
 `LIMIT=<vm>` scopes a target to one instance. For example:
 
-    make acumatica-vm LIMIT=acu-dev1        # clone + DHCP/DNS + rename one VM
-    make acumatica-config LIMIT=acu-dev1    # data disk + SQL Server for one VM
-    make acumatica-release LIMIT=acu-dev1   # Acumatica MSI + IIS/ac.exe for one VM
-    make mailpilot-vm LIMIT=mailpilot-1     # create the MailPilot Ubuntu guest
-    make mailpilot-config LIMIT=mailpilot-1 # configure it (tools, Postgres, CLIs)
-    make mailpilot-release                  # deploy/upgrade mailpilot-crm
+    gmake acumatica-vm LIMIT=acu-dev1        # clone + DHCP/DNS + rename one VM
+    gmake acumatica-config LIMIT=acu-dev1    # data disk + SQL Server for one VM
+    gmake acumatica-release LIMIT=acu-dev1   # Acumatica MSI + IIS/ac.exe for one VM
+    gmake mailpilot-vm LIMIT=mailpilot-1     # create the MailPilot Ubuntu guest
+    gmake mailpilot-config LIMIT=mailpilot-1 # configure it (tools, Postgres, CLIs)
+    gmake mailpilot-release                  # deploy/upgrade mailpilot-crm
 
-Single-role targets for the host stack: `make host-kvm`, `make host-storage`
-(ZFS datasets + sanoid), `make host-network`, `make host-smb`, `make host-base`.
-`make linux-unattended-upgrades` applies automatic apt upgrades to every Linux
-instance at once (the kronos host and the mailpilot guests).
+Single-role targets for the host stack: `gmake host-kvm`, `gmake host-storage`
+(ZFS datasets + sanoid), `gmake host-network`, `gmake host-smb`, `gmake host-base`.
+`gmake linux-unattended-upgrades` (automatic apt upgrades) and `gmake linux-uv`
+(uv, OS-global) apply to every Linux instance at once — the kronos host and the
+mailpilot guests.
 MailPilot guest specifics — secrets, app config, backups — are in
 [docs/mailpilot.md](docs/mailpilot.md).
 
@@ -103,8 +108,8 @@ Instances are inventory-driven. Adding a host is all it takes.
 
 2. Apply the stack:
 
-       make site                          # clone -> rename -> mssql -> acumatica
-       make acumatica-vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
+       gmake site                          # clone -> rename -> mssql -> acumatica
+       gmake acumatica-vm LIMIT=acu-tst1   # or just the clone + lease/DNS + rename step
 
 The MAC is derived from `vm_ip`'s last octet, so the static DHCP lease and the
 `<name>.vm.internal` DNS record exist before the VM first boots. The site lands
@@ -136,16 +141,19 @@ MailPilot guests. Roles in order:
   `unattended_upgrade_reboot_time`) when an upgrade requires it. The guest
   domains are set to libvirt autostart (in `acumatica_vm` / `mailpilot_vm`), so
   they come back automatically after the kronos host reboots.
+- **linux_uv** — installs uv (astral) OS-global to `/usr/local/bin` on every
+  Linux instance, so `uv`/`uvx` are on every user's PATH. `mailpilot_crm` uses
+  this uv for its `uv tool install`. `gmake linux-uv`.
 - **acumatica_vm** — inventory-driven guest provisioning. An `acu` host with
   `vm_ip` gets a derived MAC, a ZFS clone of `ws2025-base`, and a first-boot
-  rename. `make acumatica-vm LIMIT=<vm>`.
+  rename. `gmake acumatica-vm LIMIT=<vm>`.
 - **acumatica_mssql** — per-instance Windows layer: a data-disk zvol plus
   unattended SQL Server. Runs against inventory group `acu` over SSH to
   Administrator (`ansible_shell_type: powershell`); host-side steps delegate to
-  the host. `make acumatica-config LIMIT=<vm>`.
+  the host. `gmake acumatica-config LIMIT=<vm>`.
 - **acumatica_erp** — Acumatica ERP: installer MSI from the distr share into the
   guest, then IIS plus `ac.exe` instance deployment. Produces AcumaticaDB and a
-  site at `http://<vm>/AcumaticaERP`. `make acumatica-release LIMIT=<vm>`.
+  site at `http://<vm>/AcumaticaERP`. `gmake acumatica-release LIMIT=<vm>`.
 - **mailpilot_vm** — inventory-driven Ubuntu guest provisioning (group
   `mailpilot`): OS zvol written from the cloud image, a data zvol, a cloud-init
   NoCloud seed (hostname + `ubuntu` SSH key + static IP), then
@@ -157,4 +165,4 @@ MailPilot guests. Roles in order:
   mailpilot_gpg / mailpilot_tailscale / mailpilot_nodejs / mailpilot_claude_code
   / mailpilot_firecrawl_cli** — MailPilot guest OS + operator tooling.
 - **mailpilot_crm** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
-  user, database bootstrap, `mailpilot.service`. `make mailpilot-release`.
+  user, database bootstrap, `mailpilot.service`. `gmake mailpilot-release`.

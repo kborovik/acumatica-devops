@@ -12,6 +12,10 @@ vm_dhcp_entry: { name: '{{ inventory_hostname }}', mac: '{{ vm_mac }}', ip: '{{ 
 ansible_host: "{{ vm_ip }}"
 ansible_user: ubuntu
 ansible_become: true
+# Pin the system interpreter: auto-discovery can pick ubuntu's user-local python
+# (~/.local/bin), which become_user tasks (mailpilot, postgres) can't exec under
+# ubuntu's 0750 home — "Permission denied". /usr/bin/python3 is root-owned.
+ansible_python_interpreter: /usr/bin/python3
 
 # Public key(s) cloud-init installs for 'ubuntu'. Ansible then connects with the
 # matching private key (default SSH key / agent, or set

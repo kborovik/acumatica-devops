@@ -1,0 +1,13 @@
+---
+# uv (astral) as an OS-global tool on every Linux instance (the kronos host and
+# the mailpilot guests). Installed to {{ uv_install_dir }} — on the default PATH
+# — so uv/uvx are available to every user, not just the installing account.
+# Idempotent via `creates`; upgrade in place with `uv self update`.
+- name: Install uv OS-global ({{ uv_install_dir }})
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail &&
+      curl -LsSf https://astral.sh/uv/install.sh
+      | env UV_INSTALL_DIR={{ uv_install_dir }} INSTALLER_NO_MODIFY_PATH=1 sh
+    executable: /bin/bash
+    creates: '{{ uv_install_dir }}/uv'

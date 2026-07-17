@@ -9,6 +9,8 @@
 #   host_base       base host config for kb (fish shell)
 #   linux_unattended_upgrades  automatic apt upgrades + auto-reboot; runs on
 #                   every Linux instance (kronos here, mailpilot guests below)
+#   linux_uv        uv (astral) OS-global tool; every Linux instance
+
 #   acumatica_vm    per-instance Windows VM from the golden image (zfs clone,
 #                   derived MAC, first-boot rename) — inventory-driven, group acu
 #   acumatica_mssql per-instance Windows layer (data disk + SQL Server), group acu
@@ -32,6 +34,7 @@
     - { role: host_smb, tags: host_smb }
     - { role: host_base, tags: host_base }
     - { role: linux_unattended_upgrades, tags: linux_unattended_upgrades }
+    - { role: linux_uv, tags: linux_uv }
 
 # no gather_facts: the guest may not exist yet — the role creates it
 - name: Clone Windows guests from the golden image (per inventory)
@@ -59,6 +62,7 @@
   gather_facts: true
   roles:
     - { role: linux_unattended_upgrades, tags: linux_unattended_upgrades }
+    - { role: linux_uv, tags: linux_uv }
     - { role: mailpilot_tools, tags: mailpilot_tools }
     - { role: mailpilot_github_cli, tags: mailpilot_github_cli }
     - { role: mailpilot_google_cli, tags: mailpilot_google_cli }
