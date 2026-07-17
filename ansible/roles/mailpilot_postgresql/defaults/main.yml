@@ -5,6 +5,10 @@
 postgresql_data_device: /dev/vdb
 
 postgresql_remote_user: pilot
+# On kronos, root-only — same idea as mssql_sa_password_file. Empty extra-var
+# (default) loads from the file after generate-if-missing.
+postgresql_remote_password_file: /root/mailpilot-pg-remote-{{ inventory_hostname }}.pass
 postgresql_remote_password: ''
 postgresql_readonly_user: reporter
+postgresql_readonly_password_file: /root/mailpilot-pg-readonly-{{ inventory_hostname }}.pass
 postgresql_readonly_password: ''

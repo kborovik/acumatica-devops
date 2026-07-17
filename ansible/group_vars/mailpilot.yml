@@ -13,9 +13,14 @@ ansible_host: "{{ vm_ip }}"
 ansible_user: ubuntu
 ansible_become: true
 # Pin the system interpreter: auto-discovery can pick ubuntu's user-local python
-# (~/.local/bin), which become_user tasks (mailpilot, postgres) can't exec under
-# ubuntu's 0750 home — "Permission denied". /usr/bin/python3 is root-owned.
+# (~/.local/bin), which become_user tasks (postgres) can't exec under ubuntu's
+# 0750 home — "Permission denied". /usr/bin/python3 is root-owned.
 ansible_python_interpreter: /usr/bin/python3
+# Laptop → kronos → guest LAN. Guests are not on the tailnet; kronos is the
+# subnet router. ProxyJump keeps Ansible reliable from the control machine
+# without depending on the advertised route approval. Interactive SSH:
+# `ssh -J kronos ubuntu@{{ vm_ip }}` or `<name>.vm.internal`.
+ansible_ssh_common_args: '-o ProxyJump=kronos'
 
 # Public key(s) cloud-init installs for 'ubuntu'. Ansible then connects with the
 # matching private key (default SSH key / agent, or set

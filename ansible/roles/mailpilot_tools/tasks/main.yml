@@ -11,7 +11,7 @@
 - name: Install OS Tools
   ansible.builtin.apt:
     # python3-debian backs the deb822_repository module used by the *_cli,
-    # tailscale, postgresql and nodejs roles that run after this one.
+    # postgresql and nodejs roles that run after this one.
     package: ['acl', 'bat', 'fish', 'git', 'jq', 'make', 'gnupg', 'python3-debian', 'tmux', 'tree']
     update_cache: true
     state: present

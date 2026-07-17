@@ -37,8 +37,8 @@ uv_install_dir: /usr/local/bin # on the default PATH → uv/uvx for all users
 
 # --- mailpilot guests: Ubuntu cloud image (mailpilot_vm role) ----------------------
 # Ubuntu 26.04 LTS "Resolute Raccoon" (matches the kronos host). The codename
-# also keys the third-party apt repos in the postgresql and tailscale roles, so
-# it lives here as one source of truth. Downloaded once to the distr share;
+# also keys the third-party apt repo in the postgresql role, so it lives here
+# as one source of truth. Downloaded once to the distr share;
 # qemu-img writes it onto each guest's OS zvol; cloud-init grows the root
 # partition to fill the zvol.
 ubuntu_codename: resolute

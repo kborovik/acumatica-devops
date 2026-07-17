@@ -1,0 +1,52 @@
+---
+# Per-instance password files on the KVM host — same process as
+# acumatica_mssql sa passwords and host_smb service accounts.
+- name: Host-side PostgreSQL password files
+  delegate_to: kronos
+  become: true
+  block:
+    - name: Generate remote (pilot) password (root-only on kronos)
+      ansible.builtin.shell: >
+        umask 077 && tr -dc A-Za-z0-9 </dev/urandom | head -c24
+        > {{ postgresql_remote_password_file }}
+      args:
+        creates: "{{ postgresql_remote_password_file }}"
+
+    - name: Generate read-only (reporter) password (root-only on kronos)
+      ansible.builtin.shell: >
+        umask 077 && tr -dc A-Za-z0-9 </dev/urandom | head -c24
+        > {{ postgresql_readonly_password_file }}
+      args:
+        creates: "{{ postgresql_readonly_password_file }}"
+
+    - name: Read remote password from kronos
+      ansible.builtin.slurp:
+        src: "{{ postgresql_remote_password_file }}"
+      register: postgresql_remote_pw_raw
+      no_log: true
+      when: postgresql_remote_password | length == 0
+
+    - name: Read read-only password from kronos
+      ansible.builtin.slurp:
+        src: "{{ postgresql_readonly_password_file }}"
+      register: postgresql_readonly_pw_raw
+      no_log: true
+      when: postgresql_readonly_password | length == 0
+
+- name: Use host-local remote password when not overridden
+  ansible.builtin.set_fact:
+    postgresql_remote_password: "{{ postgresql_remote_pw_raw.content | b64decode | trim }}"
+  no_log: true
+  when:
+    - postgresql_remote_password | length == 0
+    - postgresql_remote_pw_raw is defined
+    - postgresql_remote_pw_raw.content is defined
+
+- name: Use host-local read-only password when not overridden
+  ansible.builtin.set_fact:
+    postgresql_readonly_password: "{{ postgresql_readonly_pw_raw.content | b64decode | trim }}"
+  no_log: true
+  when:
+    - postgresql_readonly_password | length == 0
+    - postgresql_readonly_pw_raw is defined
+    - postgresql_readonly_pw_raw.content is defined

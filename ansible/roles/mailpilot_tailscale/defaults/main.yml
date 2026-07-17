@@ -1,5 +1,0 @@
----
-# Tailnet auth key. Empty by default: the package is installed and tailscaled
-# started, but `tailscale up` is skipped until a key is supplied (make config
-# threads it from the secret store). Join later with `sudo tailscale up`.
-tailscale_auth_key: ''

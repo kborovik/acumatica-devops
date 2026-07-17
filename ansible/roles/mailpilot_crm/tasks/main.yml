@@ -5,23 +5,10 @@
       - mailpilot_version | length > 0
     fail_msg: "mailpilot_version must be set (e.g. --extra-vars 'mailpilot_version=0.18.0')"
 
-- name: Create mailpilot service group
-  ansible.builtin.group:
-    name: '{{ mailpilot_group }}'
-    system: true
-
-- name: Create mailpilot service user
-  ansible.builtin.user:
-    name: '{{ mailpilot_user }}'
-    group: '{{ mailpilot_group }}'
-    home: '{{ mailpilot_home }}'
-    shell: /bin/bash
-    system: true
-    create_home: true
-
 # uv is the OS-global tool from the linux_uv role ({{ uv_install_dir }}/uv); the
-# python/tool installs still run as the mailpilot user, so they land in that
-# user's env ({{ mailpilot_home }}/.local/share/uv + .local/bin).
+# python/tool installs run as the app user so they land in that user's env
+# ({{ mailpilot_home }}/.local/share/uv + .local/bin). No dedicated service
+# account — mailpilot_user is the interactive login (ubuntu by default).
 - name: Install Python {{ uv_python_version }} via uv
   ansible.builtin.command:
     cmd: '{{ uv_install_dir }}/uv python install {{ uv_python_version }}'
@@ -54,21 +41,14 @@
   ansible.builtin.debug:
     msg: 'mailpilot version: {{ mailpilot_version_check.stdout }}'
 
+# Symlink so systemd and non-login shells find the CLI without relying on
+# ~/.local/bin being on PATH.
 - name: Add mailpilot to system PATH
   ansible.builtin.file:
     src: '{{ mailpilot_home }}/.local/bin/mailpilot'
     dest: /usr/local/bin/mailpilot
     state: link
     force: true
-
-# The service-user home is created 0750 (login.defs HOME_MODE), which blocks
-# other users from traversing it — so the /usr/local/bin/mailpilot symlink above
-# is unusable for e.g. the ubuntu operator (fish: "not an executable file").
-# 0751 grants traverse (not listing) so the CLI on PATH resolves for everyone.
-- name: Allow operators to reach the mailpilot CLI (traverse the service home)
-  ansible.builtin.file:
-    path: '{{ mailpilot_home }}'
-    mode: '0751'
 
 - name: Ensure PostgreSQL cluster is started
   ansible.builtin.command:
@@ -107,6 +87,26 @@
   become_user: postgres
   when: mailpilot_pg_db_check.stdout != '1'
 
+- name: Check mailpilot database owner
+  ansible.builtin.command:
+    cmd: >-
+      psql -tAc
+      "SELECT pg_catalog.pg_get_userbyid(datdba) FROM pg_database WHERE datname='mailpilot'"
+  become: true
+  become_user: postgres
+  register: mailpilot_db_owner_check
+  changed_when: false
+  when: mailpilot_pg_db_check.stdout == '1'
+
+- name: Ensure mailpilot database owner is {{ mailpilot_user }}
+  ansible.builtin.command:
+    cmd: psql -c "ALTER DATABASE mailpilot OWNER TO {{ mailpilot_user }}"
+  become: true
+  become_user: postgres
+  when:
+    - mailpilot_pg_db_check.stdout == '1'
+    - mailpilot_db_owner_check.stdout != mailpilot_user
+
 - name: Check public schema owner in mailpilot database
   ansible.builtin.command:
     cmd: psql -tAc "SELECT nspowner::regrole FROM pg_namespace WHERE nspname='public'" mailpilot
@@ -114,6 +114,19 @@
   become_user: postgres
   register: public_schema_owner
   changed_when: false
+
+# Migrate objects from a prior dedicated service role (e.g. "mailpilot") so the
+# interactive user owns the schema after a re-point of mailpilot_user.
+- name: Reassign objects from prior public-schema owner to {{ mailpilot_user }}
+  ansible.builtin.command:
+    cmd: >-
+      psql -d mailpilot -c
+      "REASSIGN OWNED BY {{ public_schema_owner.stdout }} TO {{ mailpilot_user }}"
+  become: true
+  become_user: postgres
+  when:
+    - public_schema_owner.stdout | length > 0
+    - public_schema_owner.stdout != mailpilot_user
 
 - name: Grant {{ mailpilot_user }} ownership of public schema in mailpilot database
   ansible.builtin.command:
@@ -128,6 +141,40 @@
   become: true
   become_user: '{{ mailpilot_user }}'
   changed_when: false
+
+# Off-GCP: drop the service-account JSON, point ADC + mailpilot config at it.
+- name: Ensure gcloud config directory for application credentials
+  ansible.builtin.file:
+    path: '{{ mailpilot_home }}/.config/gcloud'
+    state: directory
+    owner: '{{ mailpilot_user }}'
+    group: '{{ mailpilot_group }}'
+    mode: '0700'
+  when: google_application_credentials_b64 | length > 0
+
+- name: Install Google application credentials (service account JSON)
+  ansible.builtin.copy:
+    content: '{{ google_application_credentials_b64 | b64decode }}'
+    dest: '{{ google_application_credentials_path }}'
+    owner: '{{ mailpilot_user }}'
+    group: '{{ mailpilot_group }}'
+    mode: '0600'
+  no_log: true
+  when: google_application_credentials_b64 | length > 0
+  notify: Restart mailpilot
+
+- name: Point mailpilot config at Google application credentials
+  ansible.builtin.command:
+    cmd: >-
+      {{ mailpilot_home }}/.local/bin/mailpilot config set
+      google_application_credentials
+      {{ google_application_credentials_path }}
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  register: mailpilot_gac_config
+  changed_when: true
+  when: google_application_credentials_b64 | length > 0
+  notify: Restart mailpilot
 
 - name: Install mailpilot systemd unit
   ansible.builtin.template:

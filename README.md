@@ -162,7 +162,7 @@ MailPilot guests. Roles in order:
   `/var/lib/postgresql`, then PostgreSQL 18 from pgdg; optional `pilot` remote
   and `reporter` read-only roles.
 - **mailpilot_tools / mailpilot_github_cli / mailpilot_google_cli /
-  mailpilot_gpg / mailpilot_tailscale / mailpilot_nodejs / mailpilot_claude_code
-  / mailpilot_firecrawl_cli** — MailPilot guest OS + operator tooling.
-- **mailpilot_crm** — `mailpilot-crm` from PyPI (uv) as the `mailpilot` service
-  user, database bootstrap, `mailpilot.service`. `gmake mailpilot-release`.
+  mailpilot_gpg / mailpilot_nodejs / mailpilot_claude_code /
+  mailpilot_firecrawl_cli** — MailPilot guest OS + operator tooling.
+- **mailpilot_crm** — `mailpilot-crm` from PyPI (uv) as the interactive
+  `ubuntu` user, database bootstrap, `mailpilot.service`. `gmake mailpilot-release`.

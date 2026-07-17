@@ -8,6 +8,10 @@ Type=simple
 User={{ mailpilot_user }}
 Group={{ mailpilot_group }}
 WorkingDirectory={{ mailpilot_home }}
+{% if google_application_credentials_b64 | default('') | length > 0 %}
+# Workload Identity is unavailable off-GCP; pin the SA JSON for ADC clients.
+Environment=GOOGLE_APPLICATION_CREDENTIALS={{ google_application_credentials_path }}
+{% endif %}
 ExecStart={{ mailpilot_home }}/.local/bin/mailpilot run
 Restart=on-failure
 RestartSec=5

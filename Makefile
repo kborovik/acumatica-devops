@@ -19,31 +19,35 @@ LIMIT_ARG = $(if $(LIMIT),-l $(LIMIT),)
 
 comma := ,
 
-# pass(1) namespace for mailpilot deploy-time secrets (all optional; empty is
-# tolerated). Override per-invocation: gmake mailpilot-config pass_namespace=<ns>
-pass_namespace := mailpilot-devops
+# pass(1) namespace for external mailpilot deploy-time secrets (API keys).
+# All optional; empty is tolerated. Postgres pilot/reporter passwords are
+# host-local on kronos (not in pass). Override per-invocation:
+# gmake mailpilot-config pass_namespace=<ns>
+pass_namespace := acumatica-devops
+# Lab5 deploy key — same fingerprint as gcp-devops/.gpg-id
+pass_gpg_id := E4AFCA7FBB19FC029D519A524AEBB5178D5E96C1
+PASSWORD_STORE_DIR ?= $(HOME)/.password-store
 
-.PHONY: default help site lint deps ping \
+.PHONY: default help site lint deps ping secrets-check \
         host-base host-kvm host-storage host-network host-smb \
         linux-unattended-upgrades linux-uv \
         acumatica-vm acumatica-config acumatica-release acumatica-status \
         mailpilot-vm mailpilot-config mailpilot-release mailpilot-status \
         mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli \
-        mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code \
+        mailpilot-google-cli mailpilot-claude-code \
         mailpilot-firecrawl-cli \
         release major minor patch
 
 # Best-effort secrets from pass(1). Missing keys resolve to empty strings; the
-# roles that consume them (tailscale, postgresql remote/reporter, claude_code,
-# firecrawl_cli, tools) all no-op or defer on an empty value.
+# roles that consume them (claude_code, firecrawl_cli, tools, mailpilot_crm GAC)
+# all no-op or defer on an empty value. Postgres passwords are loaded from
+# kronos. Multi-line SA JSON is base64 so it survives extra-vars.
 define load_secrets
-tailscale_auth_key=$$(pass show $(pass_namespace)/TAILSCALE_AUTH_KEY 2>/dev/null || true)
-postgresql_remote_password=$$(pass show $(pass_namespace)/POSTGRESQL_REMOTE_PASSWORD 2>/dev/null || true)
-postgresql_readonly_password=$$(pass show $(pass_namespace)/POSTGRESQL_READONLY_PASSWORD 2>/dev/null || true)
 logfire_read_token=$$(pass show $(pass_namespace)/LOGFIRE_READ_TOKEN 2>/dev/null || true)
 anthropic_api_key=$$(pass show $(pass_namespace)/ANTHROPIC_API_KEY 2>/dev/null || true)
 firecrawl_api_key=$$(pass show $(pass_namespace)/FIRECRAWL_API_KEY 2>/dev/null || true)
-extra_vars="tailscale_auth_key=$$tailscale_auth_key postgresql_remote_password=$$postgresql_remote_password postgresql_readonly_password=$$postgresql_readonly_password logfire_read_token=$$logfire_read_token anthropic_api_key=$$anthropic_api_key firecrawl_api_key=$$firecrawl_api_key"
+google_application_credentials_b64=$$(pass show $(pass_namespace)/GOOGLE_APPLICATION_CREDENTIALS 2>/dev/null | base64 | tr -d '\n' || true)
+extra_vars="logfire_read_token=$$logfire_read_token anthropic_api_key=$$anthropic_api_key firecrawl_api_key=$$firecrawl_api_key google_application_credentials_b64=$$google_application_credentials_b64"
 endef
 
 # Resolve the mailpilot version: explicit `version=X.Y.Z`, else latest on PyPI.
@@ -115,6 +119,35 @@ lint: deps ## ansible-lint over the ansible tree
 ping: ## ansible connectivity test (LIMIT=mailpilot for the guests)
 	cd ansible
 	ansible $(if $(LIMIT),$(LIMIT),kronos) -m ping
+
+# Existence-only audit of external pass keys (never prints secret values).
+# STRICT=1 exits non-zero if any key is missing.
+secrets-check: ## OK/MISS for pass external secrets under pass_namespace
+	$(call header,pass namespace: $(pass_namespace))
+	gpg_id_file="$(PASSWORD_STORE_DIR)/$(pass_namespace)/.gpg-id"
+	if [ -f "$$gpg_id_file" ]; then
+	  got=$$(tr -d '[:space:]' < "$$gpg_id_file")
+	  if [ "$$got" = "$(pass_gpg_id)" ]; then
+	    echo "$(green)OK  $(reset).gpg-id = $(pass_gpg_id)"
+	  else
+	    echo "$(yellow)WARN$(reset) .gpg-id is $$got (expected $(pass_gpg_id))"
+	  fi
+	else
+	  echo "$(yellow)WARN$(reset) missing $$gpg_id_file — run: pass init -p $(pass_namespace) $(pass_gpg_id)"
+	fi
+	missing=0
+	for k in LOGFIRE_READ_TOKEN ANTHROPIC_API_KEY FIRECRAWL_API_KEY GOOGLE_APPLICATION_CREDENTIALS; do
+	  if pass show "$(pass_namespace)/$$k" >/dev/null 2>&1; then
+	    echo "$(green)OK  $(reset)$(pass_namespace)/$$k"
+	  else
+	    echo "$(yellow)MISS$(reset) $(pass_namespace)/$$k"
+	    missing=$$((missing + 1))
+	  fi
+	done
+	if [ "$(STRICT)" = "1" ] && [ "$$missing" -gt 0 ]; then
+	  echo "$(yellow)$$missing key(s) missing (STRICT=1)$(reset)"
+	  exit 1
+	fi
 
 deps:
 	cd ansible
@@ -194,8 +227,9 @@ mailpilot-config: ## configure the MailPilot guests — OS, data disk, Postgres,
 mailpilot-release: ## install/upgrade mailpilot-crm + (re)start the service [version=X.Y.Z]
 	cd ansible
 	$(resolve_version)
+	$(load_secrets)
 	$(call header,Deploy mailpilot-crm==$$v)
-	$(PLAYBOOK) --tags mailpilot_crm $(LIMIT_ARG) --extra-vars "mailpilot_version=$$v"
+	$(PLAYBOOK) --tags mailpilot_crm $(LIMIT_ARG) --extra-vars "$$extra_vars mailpilot_version=$$v"
 
 mailpilot-status: ## mailpilot VM reachability — SSH (22) port check
 	$(call status_check,mailpilot,22)
@@ -204,9 +238,9 @@ mailpilot-status: ## mailpilot VM reachability — SSH (22) port check
 # The tag is the target name with hyphens flipped to underscores, matching the
 # role/tag names in site.yml:
 #   gmake mailpilot-tools | mailpilot-postgresql | mailpilot-nodejs |
-#        mailpilot-github-cli | mailpilot-google-cli | mailpilot-tailscale |
+#        mailpilot-github-cli | mailpilot-google-cli |
 #        mailpilot-claude-code | mailpilot-firecrawl-cli   [LIMIT=mailpilot-1]
-mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailpilot-google-cli mailpilot-tailscale mailpilot-claude-code mailpilot-firecrawl-cli:
+mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli mailpilot-google-cli mailpilot-claude-code mailpilot-firecrawl-cli:
 	cd ansible
 	$(load_secrets)
 	$(PLAYBOOK) --tags $(subst -,_,$@) $(LIMIT_ARG) --extra-vars "$$extra_vars"

@@ -69,7 +69,6 @@
     - role: mailpilot_gpg
       tags: mailpilot_gpg
       when: gpg_signing_key is defined
-    - { role: mailpilot_tailscale, tags: mailpilot_tailscale }
     - { role: mailpilot_postgresql, tags: mailpilot_postgresql }
     - { role: mailpilot_nodejs, tags: mailpilot_nodejs }
     - { role: mailpilot_claude_code, tags: mailpilot_claude_code }

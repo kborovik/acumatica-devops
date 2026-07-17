@@ -5,5 +5,9 @@
 - name: Data disk in the guest (ext4 on vdb)
   ansible.builtin.import_tasks: data_disk.yml
 
+# Password files on kronos (generate + slurp) before role CREATE/ALTER.
+- name: Host-side PostgreSQL passwords on kronos
+  ansible.builtin.import_tasks: kronos.yml
+
 - name: PostgreSQL 18 in the guest
   ansible.builtin.import_tasks: install.yml
