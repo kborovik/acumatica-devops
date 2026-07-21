@@ -33,7 +33,7 @@ V6: docs-remote-db — `docs/mailpilot.md` notes VM-subnet pg_hba allow + how to
 
 id|status|task|cites
 T1|x|add pg_hba host line for `vm_subnet` (scram-sha-256) via role var in `mailpilot_postgresql` install.yml|V1,V4,I.role,I.var
-T2|.|document remote DB URL pattern (guest IP / `*.vm.internal`) + `pilot` password path in docs/mailpilot.md|V6,I.docs,I.file
+T2|x|document remote DB URL pattern (guest IP / `*.vm.internal`) + `pilot` password path in docs/mailpilot.md|V6,I.docs,I.file
 T3|.|confirm `gmake mailpilot-postgresql LIMIT=mailpilot-1` applies hba + reloads Postgres; accept from control machine w/ `database_url` @ guest IP|V1,V2,V3,V5,I.cmd
 
 ## §B BUGS

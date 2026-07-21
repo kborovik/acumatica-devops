@@ -101,6 +101,34 @@ hatch); empty default always uses the host files.
 
 Read a password: `ssh kronos -- sudo cat /root/mailpilot-pg-remote-mailpilot-1.pass`.
 
+### Remote Postgres from the control machine
+
+`pg_hba.conf` (role `mailpilot_postgresql`) allows:
+
+| Client source | Method |
+| --- | --- |
+| localhost (`local`, `127.0.0.1/32`, `::1/128`) | trust |
+| Tailscale CGNAT `100.64.0.0/10` | scram-sha-256 |
+| Lab VM subnet (`vm_subnet`, default `192.168.122.0/24`) | scram-sha-256 |
+
+Clients that reach the guest over the libvirt path (via kronos as subnet
+router) typically appear as the gateway (`192.168.122.1`), not a Tailscale
+address — the VM-subnet line is what admits them.
+
+Point `database_url` (or `psql`) at the guest IP or DNS name on the VM
+subnet; use role `pilot` and the password from the kronos file above:
+
+    # host forms (same reachability path as SSH):
+    #   192.168.122.20
+    #   mailpilot-1.vm.internal
+    export PGPASSWORD="$(ssh kronos -- sudo cat /root/mailpilot-pg-remote-mailpilot-1.pass)"
+    psql "host=192.168.122.20 port=5432 dbname=mailpilot user=pilot sslmode=prefer"
+    # or: mailpilot config set database_url 'postgresql://pilot:…@192.168.122.20:5432/mailpilot'
+
+Re-apply after role changes: `gmake mailpilot-postgresql LIMIT=mailpilot-1`
+(or full `mailpilot-config`). The role rewrites `pg_hba.conf` and restarts
+Postgres via notify.
+
 Git commit signing (`mailpilot_gpg` role) is off unless a key is passed explicitly:
 
     cd ansible && ansible-playbook site.yml --tags mailpilot_gpg -l mailpilot-1 \
