@@ -12,3 +12,7 @@ postgresql_remote_password: ''
 postgresql_readonly_user: reporter
 postgresql_readonly_password_file: /root/mailpilot-pg-readonly-{{ inventory_hostname }}.pass
 postgresql_readonly_password: ''
+
+# Remote pg_hba allow — lab VM subnet (libvirt NAT / kronos gateway). Defaults
+# to group_vars vm_subnet so a lab CIDR change does not require a role edit.
+postgresql_hba_vm_subnet: "{{ vm_subnet }}"

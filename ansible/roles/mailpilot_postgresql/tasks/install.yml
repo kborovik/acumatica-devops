@@ -46,7 +46,7 @@
     - { key: effective_io_concurrency, value: 200 }
   notify: Restart PostgreSQL
 
-- name: Configure pg_hba.conf for localhost trust
+- name: Configure pg_hba.conf (localhost trust + remote scram-sha-256)
   ansible.builtin.copy:
     dest: /etc/postgresql/18/main/pg_hba.conf
     owner: postgres
@@ -60,6 +60,8 @@
       host    all       all   ::1/128        trust
       # Tailscale VPN (CGNAT range 100.64.0.0/10)
       host    all       all   100.64.0.0/10  scram-sha-256
+      # Libvirt lab VM subnet (client often appears as gateway on kronos)
+      host    all       all   {{ postgresql_hba_vm_subnet }}  scram-sha-256
   notify: Restart PostgreSQL
 
 - name: Start PostgreSQL
