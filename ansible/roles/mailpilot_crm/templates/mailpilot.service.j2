@@ -2,6 +2,12 @@
 Description=MailPilot agent service
 After=postgresql.service network-online.target
 Wants=network-online.target
+# Schema-gate / config-class failures exit 1. Restart=on-failure alone
+# crash-loops and systemctl can report active while the agent never stays
+# up. Start-rate limit forces a durable failed state operators can alert on.
+# RestartPreventExitStatus not used yet — app has no dedicated config exit code.
+StartLimitIntervalSec=60
+StartLimitBurst=3
 
 [Service]
 Type=simple

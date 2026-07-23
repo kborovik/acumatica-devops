@@ -45,7 +45,7 @@ id|status|task|cites
 T1|x|add pg_hba host line for `vm_subnet` (scram-sha-256) via role var in `mailpilot_postgresql` install.yml|V1,V4,I.role,I.var
 T2|x|document remote DB URL pattern (guest IP / `*.vm.internal`) + `pilot` password path in docs/mailpilot.md|V6,I.docs,I.file
 T3|x|confirm `gmake mailpilot-postgresql LIMIT=mailpilot-1` applies hba + reloads Postgres; accept from control machine w/ `database_url` @ guest IP|V1,V2,V3,V5,I.cmd
-T4|.|harden mailpilot.service.j2 so schema-gate exit 1 not infinite Restart=on-failure loop (StartLimitBurst/Interval and/or RestartPreventExitStatus; document choice)|V7,V9,I.unit
+T4|x|harden mailpilot.service.j2 so schema-gate exit 1 not infinite Restart=on-failure loop (StartLimitBurst/Interval and/or RestartPreventExitStatus; document choice)|V7,V9,I.unit
 T5|.|ensure mailpilot_crm deploy runs db init → migrate → check before unit restart (primary path)|V8,I.role,I.cmd
 T6|.|document unit restart policy next to template / docs/mailpilot.md|V9,I.unit,I.docs
 T7|.|lab or CI probe: pending schema → unit not green crash-loop|V7,V10
