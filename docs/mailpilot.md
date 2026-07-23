@@ -32,8 +32,10 @@ Interactive SSH (via kronos or the advertised subnet route):
 - `gmake mailpilot-vm LIMIT=mailpilot-1` — create/boot the guest (mailpilot_vm + host_network roles).
 - `gmake mailpilot-config LIMIT=mailpilot-1` — configure the guest: OS tools, operator
   CLIs, ext4 data disk + PostgreSQL 18.
-- `gmake mailpilot-release [version=X.Y.Z]` — install/upgrade `mailpilot-crm` and
+- `gmake mailpilot-release [version=X.Y.Z]` — install/upgrade `mailpilot-crm`,
+  apply schema migrations (`mailpilot db init` → `db migrate` → `db check`), and
   (re)start the service. Without `version`, the latest PyPI release is used.
+  The play fails if schema is still pending/drift after migrate.
 - `gmake mailpilot-stats` — SSH (22) reachability + `systemctl is-active` +
   `mailpilot --version` + recent journal.
 - `gmake site LIMIT=mailpilot-1` — all three in one pass.
@@ -161,8 +163,47 @@ Verify on the guest:
     mailpilot config get
     # xai_api_key → *** (redacted); google_application_credentials → path when set
     # google_application_credentials → /home/ubuntu/.config/gcloud/application_default_credentials.json
+    mailpilot db check          # schema gate; exit 1 if pending/drift
     systemctl show mailpilot -p Environment
     systemctl status mailpilot
+
+If the daemon logs `schema not current; refusing write-path command` or
+`schema_migration_pending` after a manual package upgrade, apply migrations
+and re-check (the release role does this automatically):
+
+    mailpilot db migrate
+    mailpilot db check
+    sudo systemctl restart mailpilot
+
+### systemd unit restart policy
+
+Template: `ansible/roles/mailpilot_crm/templates/mailpilot.service.j2`.
+
+| Setting | Value | Role |
+| --- | --- | --- |
+| `Restart` | `on-failure` | Retry transient runtime failures |
+| `RestartSec` | `5` | Delay between restarts |
+| `StartLimitIntervalSec` | `60` | Window for the start-rate limit |
+| `StartLimitBurst` | `3` | Max starts in that window |
+
+**Why:** schema-gate and config-class failures exit **1**. With only
+`Restart=on-failure`, systemd crash-loops and `systemctl status` can look
+healthy (`active` / `activating`) while the agent never stays in the sync
+loop. The start-rate limit stops restarts after three failures in 60s and
+leaves the unit in a durable **failed** state operators can alert on.
+
+**Primary fix** remains migrate-before-restart on deploy (`gmake mailpilot-release`
+runs `db init` → `db migrate` → `db check` before starting the unit). Unit
+policy is the secondary signal for drift after a manual upgrade or a failed
+migrate.
+
+`RestartPreventExitStatus` is not used yet — the app has no dedicated config
+exit code separate from general failure. If mailpilot adds one later, pin it
+here and drop or keep the burst limit as defense in depth.
+
+Offline probe of the template + role tasks:
+
+    gmake mailpilot-unit-check
 
 ## Backups
 
