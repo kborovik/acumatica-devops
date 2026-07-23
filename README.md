@@ -165,4 +165,5 @@ MailPilot guests. Roles in order:
   mailpilot_gpg / mailpilot_nodejs / mailpilot_claude_code /
   mailpilot_firecrawl_cli** — MailPilot guest OS + operator tooling.
 - **mailpilot_crm** — `mailpilot-crm` from PyPI (uv) as the interactive
-  `ubuntu` user, database bootstrap, `mailpilot.service`. `gmake mailpilot-release`.
+  `ubuntu` user, database bootstrap + schema migrate/check, `mailpilot.service`.
+  `gmake mailpilot-release`.

@@ -28,6 +28,7 @@
   become_user: '{{ mailpilot_user }}'
   register: mailpilot_install
   changed_when: "'Installed' in mailpilot_install.stderr or 'Updated' in mailpilot_install.stderr"
+  notify: Restart mailpilot
 
 - name: Verify mailpilot installation
   ansible.builtin.command:
@@ -138,12 +139,49 @@
   become_user: postgres
   when: public_schema_owner.stdout != mailpilot_user
 
-- name: Initialize database schema
+# Schema gate: package upgrades ship forward migrations (see `mailpilot db`).
+# Without migrate, the daemon refuses write-path work
+# ("schema not current; refusing write-path command" / schema_migration_pending).
+# init → empty DB first install only. On an existing DB it exits 1 with
+# already_initialized (and tells you to run migrate) — that is expected on
+# upgrade, not a play failure. migrate → pending upgrades (no-op when current);
+# check → fail the play if still pending/drift.
+- name: Initialize empty database schema
   ansible.builtin.command:
-    cmd: '{{ mailpilot_home }}/.local/bin/mailpilot status'
+    cmd: '{{ mailpilot_home }}/.local/bin/mailpilot db init'
   become: true
   become_user: '{{ mailpilot_user }}'
+  register: mailpilot_db_init
+  # already_initialized (rc=1) is the upgrade path; only real init failures fail.
+  failed_when: >-
+    mailpilot_db_init.rc != 0
+    and ('already_initialized' not in (mailpilot_db_init.stdout | default(''))
+         and 'already_initialized' not in (mailpilot_db_init.stderr | default('')))
+  changed_when: mailpilot_db_init.rc == 0
+
+- name: Apply pending schema migrations
+  ansible.builtin.command:
+    cmd: '{{ mailpilot_home }}/.local/bin/mailpilot db migrate'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  register: mailpilot_db_migrate
+  changed_when: >-
+    'pending' in (mailpilot_db_migrate.stdout | default('') | lower)
+    or 'applied' in (mailpilot_db_migrate.stdout | default('') | lower)
+    or 'migrat' in (mailpilot_db_migrate.stdout | default('') | lower)
+  notify: Restart mailpilot
+
+- name: Verify database schema is current
+  ansible.builtin.command:
+    cmd: '{{ mailpilot_home }}/.local/bin/mailpilot db check'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  register: mailpilot_db_check
   changed_when: false
+
+- name: Display schema check result
+  ansible.builtin.debug:
+    msg: '{{ mailpilot_db_check.stdout | default(mailpilot_db_check.stderr) }}'
 
 # Off-GCP: drop the service-account JSON, point ADC + mailpilot config at it.
 - name: Ensure gcloud config directory for application credentials
