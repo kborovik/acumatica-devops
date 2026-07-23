@@ -33,6 +33,7 @@ PASSWORD_STORE_DIR ?= $(HOME)/.password-store
         linux-unattended-upgrades linux-uv \
         acumatica-vm acumatica-config acumatica-release acumatica-status \
         mailpilot-vm mailpilot-config mailpilot-release mailpilot-status \
+        mailpilot-unit-check \
         mailpilot-tools mailpilot-postgresql mailpilot-nodejs mailpilot-github-cli \
         mailpilot-google-cli mailpilot-claude-code \
         mailpilot-firecrawl-cli \
@@ -242,6 +243,11 @@ mailpilot-release: ## install/upgrade mailpilot-crm + (re)start the service [ver
 
 mailpilot-status: ## mailpilot VM reachability — SSH (22) port check
 	$(call status_check,mailpilot,22)
+
+# Static probe (no guest): unit StartLimit policy + migrate-before-restart task order.
+# Lab: start unit against a pending-schema DB → expect failed, not a green crash loop.
+mailpilot-unit-check: ## offline probe — unit StartLimit + db migrate before start
+	bash scripts/check-mailpilot-unit.sh
 
 # Single-role convenience targets for the mailpilot guests (secrets threaded).
 # The tag is the target name with hyphens flipped to underscores, matching the
