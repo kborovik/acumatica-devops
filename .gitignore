@@ -14,6 +14,3 @@ ansible/.collections/
 credentials.json
 service-account*.json
 secrets/
-
-# SDD check memo / backprop handoff (local only)
-.spec/
