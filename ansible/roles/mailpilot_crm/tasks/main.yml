@@ -179,6 +179,23 @@
   when: google_application_credentials_b64 | length > 0
   notify: Restart mailpilot
 
+# Default llm_provider is xai (mailpilot §V.47); active-provider key required at
+# model build. Load from pass grok/GROK_API_KEY via Makefile extra-vars.
+- name: Set mailpilot xai_api_key
+  ansible.builtin.command:
+    argv:
+      - '{{ mailpilot_home }}/.local/bin/mailpilot'
+      - config
+      - set
+      - xai_api_key
+      - '{{ xai_api_key }}'
+  become: true
+  become_user: '{{ mailpilot_user }}'
+  no_log: true
+  changed_when: true
+  when: xai_api_key | length > 0
+  notify: Restart mailpilot
+
 - name: Install mailpilot systemd unit
   ansible.builtin.template:
     src: mailpilot.service.j2

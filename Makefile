@@ -39,15 +39,17 @@ PASSWORD_STORE_DIR ?= $(HOME)/.password-store
         release major minor patch
 
 # Best-effort secrets from pass(1). Missing keys resolve to empty strings; the
-# roles that consume them (claude_code, firecrawl_cli, tools, mailpilot_crm GAC)
+# roles that consume them (claude_code, firecrawl_cli, tools, mailpilot_crm)
 # all no-op or defer on an empty value. Postgres passwords are loaded from
 # kronos. Multi-line SA JSON is base64 so it survives extra-vars.
+# xai_api_key lives outside pass_namespace (shared Grok key under grok/).
 define load_secrets
 logfire_read_token=$$(pass show $(pass_namespace)/LOGFIRE_READ_TOKEN 2>/dev/null || true)
 anthropic_api_key=$$(pass show $(pass_namespace)/ANTHROPIC_API_KEY 2>/dev/null || true)
 firecrawl_api_key=$$(pass show $(pass_namespace)/FIRECRAWL_API_KEY 2>/dev/null || true)
 google_application_credentials_b64=$$(pass show $(pass_namespace)/GOOGLE_APPLICATION_CREDENTIALS 2>/dev/null | base64 | tr -d '\n' || true)
-extra_vars="logfire_read_token=$$logfire_read_token anthropic_api_key=$$anthropic_api_key firecrawl_api_key=$$firecrawl_api_key google_application_credentials_b64=$$google_application_credentials_b64"
+xai_api_key=$$(pass show grok/GROK_API_KEY 2>/dev/null || true)
+extra_vars="logfire_read_token=$$logfire_read_token anthropic_api_key=$$anthropic_api_key firecrawl_api_key=$$firecrawl_api_key google_application_credentials_b64=$$google_application_credentials_b64 xai_api_key=$$xai_api_key"
 endef
 
 # Resolve the mailpilot version: explicit `version=X.Y.Z`, else latest on PyPI.
@@ -144,6 +146,13 @@ secrets-check: ## OK/MISS for pass external secrets under pass_namespace
 	    missing=$$((missing + 1))
 	  fi
 	done
+	# Shared Grok key (outside pass_namespace) — mailpilot_crm → xai_api_key
+	if pass show grok/GROK_API_KEY >/dev/null 2>&1; then
+	  echo "$(green)OK  $(reset)grok/GROK_API_KEY"
+	else
+	  echo "$(yellow)MISS$(reset) grok/GROK_API_KEY"
+	  missing=$$((missing + 1))
+	fi
 	if [ "$(STRICT)" = "1" ] && [ "$$missing" -gt 0 ]; then
 	  echo "$(yellow)$$missing key(s) missing (STRICT=1)$(reset)"
 	  exit 1

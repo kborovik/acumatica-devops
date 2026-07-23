@@ -20,4 +20,8 @@ mailpilot_home: /home/ubuntu
 google_application_credentials_b64: ''
 google_application_credentials_path: '{{ mailpilot_home }}/.config/gcloud/application_default_credentials.json'
 
+# xAI API key (mailpilot default llm_provider=xai since v0.20 / §V.47).
+# Makefile loads pass grok/GROK_API_KEY; empty skips config set.
+xai_api_key: ''
+
 uv_python_version: '3.14'

@@ -64,6 +64,7 @@ stay unauthenticated). Loaded by the Makefile under `pass_namespace` (default
 | `ANTHROPIC_API_KEY` | mailpilot_tools (vim-claude, operator use) |
 | `FIRECRAWL_API_KEY` | mailpilot_firecrawl_cli |
 | `GOOGLE_APPLICATION_CREDENTIALS` | mailpilot_crm (SA JSON for ADC off-GCP) |
+| `grok/GROK_API_KEY` | mailpilot_crm → `mailpilot config set xai_api_key` (default LLM) |
 
 Encrypt the namespace with the Lab5 GPG key (same fingerprint as
 `gcp-devops/.gpg-id`), then insert keys:
@@ -138,19 +139,27 @@ Git commit signing (`mailpilot_gpg` role) is off unless a key is passed explicit
 
 The deploy provisions the database, the systemd unit, and (when present in
 `pass`) the Google service-account JSON + `google_application_credentials`
-config. Daemon and CLI run as **`ubuntu`** (same account you SSH as). Runtime
-config is `~/.mailpilot/config.json` under that home. Set app credentials as
-`ubuntu`:
+config and the xAI API key (`xai_api_key`). Daemon and CLI run as **`ubuntu`**
+(same account you SSH as). Runtime config is `~/.mailpilot/config.json` under
+that home.
 
-    mailpilot config set anthropic_api_key sk-ant-...
+MailPilot default `llm_provider` is **`xai`** (Grok) since the §V.47 provider
+switch. Deploy sets `xai_api_key` from `pass grok/GROK_API_KEY` when the key
+exists. Anthropic is opt-in:
+
+    # optional — only if you switch provider:
+    # mailpilot config set llm_provider anthropic
+    # mailpilot config set anthropic_api_key sk-ant-...
     # google_application_credentials is set by mailpilot_crm when
     # acumatica-devops/GOOGLE_APPLICATION_CREDENTIALS is in pass
+    # xai_api_key is set by mailpilot_crm when grok/GROK_API_KEY is in pass
     mailpilot account create --email user@example.com --display-name "User Name"
     sudo systemctl restart mailpilot
 
 Verify on the guest:
 
     mailpilot config get
+    # xai_api_key → *** (redacted); google_application_credentials → path when set
     # google_application_credentials → /home/ubuntu/.config/gcloud/application_default_credentials.json
     systemctl show mailpilot -p Environment
     systemctl status mailpilot
